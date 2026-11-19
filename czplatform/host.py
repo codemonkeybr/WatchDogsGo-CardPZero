@@ -100,11 +100,55 @@ def use_the_bq27220_gauge():
     app.WatchDogsGame._read_battery = staticmethod(read_battery)
 
 
+def free_sdr_usb_from_the_aio_gate():
+    """``_toggle_sdr``/``_toggle_usb`` hard-require ``AioManager.toggle()`` to
+    succeed before doing anything — on the uConsole those GPIOs gate the USB
+    port's own power. ``make_aio_inert()`` already makes ``AioManager`` a
+    no-op (correctly: AIO v2 isn't installed here, and those GPIOs are other
+    things, see the module docstring), which as an upstream side effect means
+    the *original* ``_toggle_sdr``/``_toggle_usb`` could never turn on at all
+    on this device — found live, trying to use ADS-B Radar with the SDR
+    plugged in: "[SDR] AIO v2 not available", forever. The CardputerZero's USB
+    host ports are always-on (no such gate exists here), so this makes both
+    toggles software-only, the same shape ``_toggle_gps``/``_toggle_lora``
+    already use when AIO v2 is absent.
+    """
+    from watchdogs import app
+
+    def _toggle_sdr(self):
+        new_state = not self._sdr_enabled
+        self._sdr_enabled = new_state
+        if new_state:
+            self.msg("[SDR] ON", app.C_SUCCESS)
+            self._term_add("[SYS] SDR enabled", raw=True)
+        else:
+            self._sdr.stop()
+            self.msg("[SDR] OFF", app.C_WARNING)
+            self._term_add("[SYS] SDR disabled", raw=True)
+        self.glitch_timer = 2
+
+    def _toggle_usb(self):
+        new_state = not self._usb_enabled
+        self._usb_enabled = new_state
+        if new_state:
+            self.msg("[USB] ON", app.C_SUCCESS)
+            self._term_add("[SYS] USB enabled", raw=True)
+        else:
+            self.msg("[USB] OFF", app.C_WARNING)
+            self._term_add("[SYS] USB disabled", raw=True)
+        self.glitch_timer = 2
+
+    app.WatchDogsGame._toggle_sdr = _toggle_sdr
+    app.WatchDogsGame._toggle_usb = _toggle_usb
+    log.info("SDR/USB toggles freed from the AIO v2 gate (always-on USB host ports here)")
+
+
 def adapt_game():
     """Apply every runtime adaptation. Call after importing, before constructing."""
     make_aio_inert()
     point_lora_at_the_cap()
     use_the_bq27220_gauge()
+    free_sdr_usb_from_the_aio_gate()
 
 
 class CapRail:

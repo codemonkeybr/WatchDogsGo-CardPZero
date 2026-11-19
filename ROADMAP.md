@@ -73,7 +73,7 @@ plugged in.
 | 2.2 | Port `lora_manager.py` to the CardputerZero mapping: **SPI bus 0, CS 1** (uConsole code uses bus 1, CS 0), **RST = G26, DIO1/IRQ = G23, BUSY = G22** (0.7), Cap power via the `ext_5v_out` LED | 🔵 | The decode/encode layer should need no change. Upstream polls the IRQ register over SPI rather than the pin, so BUSY vs DIO1 matters mostly for BUSY pacing. Enable the DIO3 TCXO at 1.8 V (upstream already does). This unit looks like the legacy LoRa868, so no RF-switch expander to drive; if it ever turns out to be the newer LoRa-1262, set the PI4IOE5V6408 P0 high first. Keep `setTxPower(22, TX_POWER_SX1262)` in mind (fine for an SX1262; mind regional power limits). **The SPI bus/CS and RST/BUSY/IRQ constants are already patched at runtime by `czplatform/host.py`** (no vendored edit) and `CapRail` powers the module; real packet RX/TX is still untested |
 | 2.3 | Point `gps_manager.py` at `/dev/ttyS0` (115200 8N1 per the module docs) | ⬜ | Measured: NMEA at **115200** on `/dev/ttyS0`; upstream defaults are `/dev/ttyAMA0` @ 9600 (`config.py`), so set `WDG_GPS_DEVICE=/dev/ttyS0` and `WDG_GPS_BAUD=115200` or change the defaults. The parser already accepts `$GPGGA/$GNGGA/$GPRMC/$GNRMC`. `czplatform/host.py` now sets those two env defaults and `CapRail` powers the rail; a real fix outdoors is still to be seen |
 | 2.4 | Re-verify MeshCore decode/encode + sniffer presets unchanged | ⬜ | Protocol-level, should be hardware-agnostic |
-| 2.5 | NESDR SMART for ADS-B (`dump1090`) and 433 MHz (`rtl_433`) in-game | ⬜ | |
+| 2.5 | NESDR SMART for ADS-B (`dump1090`) and 433 MHz (`rtl_433`) in-game | ✅ | SDR fix from the earlier entry (`tools/dump1090-readsb-shim.sh`) deployed; found and fixed one more bug to get here — see `czplatform/host.py`'s `free_sdr_usb_from_the_aio_gate()`. **Verified live**, SDR plugged in: SYSTEM → SDR now turns on ("[SYS] SDR enabled"); ADDONS → ADS-B Radar starts `dump1090` and shows a live sweep (`AC:0/0` — no aircraft in range at that moment, expected, same dongle/chain already proven to decode real traffic); ADDONS → 433 MHz Scanner starts `rtl_433` the same way. Single dongle, so stopped one before starting the other, as the vendored code expects |
 | 2.6 | Validate an external monitor-mode USB WiFi adapter (Alfa AWUS036ACH/ACM) for Dragon Drain/deauth | ⬜ | Now confirmed mandatory: the internal radio has no monitor mode (0.9) |
 | 2.7 | Run `wdg_wifi_bridge.py` against the internal `wlan0`/`hci0` (scan-only, no monitor mode) and confirm WiFi + BLE wardriving through the unchanged serial protocol | ✅ | **The privilege answer turned out to be: don't use `iw scan` at all.** It needs CAP_NET_ADMIN (root); switched `scan_wifi()` to `nmcli dev wifi list --rescan yes`, which NetworkManager runs with its own privilege over D-Bus/polkit — a plain `netdev`-group user can trigger it, confirmed on-device with no sudo. BLE via `bleak`/BlueZ D-Bus was already unprivileged (confirmed with `bluetoothctl scan on` as the same user). Relaxed `wdg_wifi_bridge.py`'s blanket root check to only apply when monitor mode is requested (never the case here — `--no-monitor` always, since `wlan0` has none anyway, 0.9). New `czplatform/internal_radio.py` auto-starts the bridge (`--iface wlan0 --bt-iface hci0 --no-monitor --pty` = `serial_manager.AIOV2_BRIDGE_PTY`) whenever `detect_esp32_port()` finds nothing, wired into `czplatform/__main__.py`; a real ESP32 always wins when plugged in. **Verified live, ESP32 and SDR both unplugged:** the game auto-started the bridge, WiFi Scan (8 networks, real SSIDs/BSSIDs/channels/security) and BLE Scan (50 devices) both ran through the actual menu and returned real results, no root anywhere in the chain. `bleak` installed in the device venv the same way `LoRaRF` was (gotcha: watch for it shadowing anything — it didn't this time, no `RPi.GPIO`-shaped sub-dependency) |
 | 2.8 | Explicit scan-source setting (`auto` \| `esp32` \| `internal`) — env/`secrets.conf` + SYSTEM-menu entry — replacing "ESP32 if present, else bridge" | ⬜ | The "auto" half is 2.7's `internal_radio.maybe_start()` (ESP32 always wins, bridge only as fallback). Still open: a way to force `internal` even with an ESP32 plugged in, or force `esp32`-only (fail instead of falling back); the HUD currently shows "ESP32:OK" regardless of which one is actually talking (same upstream string either way — cosmetic, not wired to a real ESP32 check) |
@@ -139,6 +139,40 @@ feedback has been collected and triaged.
 
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
+
+- **2026-11-19 (SDR and MeshCore both confirmed end-to-end through the real game menus; found and fixed one more bug — `_toggle_sdr`/`_toggle_usb` could never turn on)** —
+  Owner reconnected the SDR and said to finish both SDR and MeshCore in one
+  go. **MeshCore**: re-verified with a fresh game process — LoRa toggle ON
+  showed a real `[LoRa]   TX: 112B sent`, and MeshCore Messenger opened
+  showing `nodes:9` (remembered across restarts) and the right nickname.
+  Treating this as settled; it's been confirmed working on three separate
+  runs today. **SDR**: ADDONS → ADS-B Radar first refused with
+  "[SDR] Enable SDR first (SYSTEM > SDR)" — tried that, and the SYSTEM → SDR
+  toggle did *nothing at all*, no message, no "ON" label. Root cause:
+  `_toggle_sdr()`/`_toggle_usb()` (unlike `_toggle_gps`/`_toggle_lora`) hard
+  `return` with "AIO v2 not available" when `AioManager.is_installed()` is
+  false — and `czplatform/host.py`'s `make_aio_inert()` deliberately makes it
+  always false (correctly: those GPIOs are the keyboard IRQ/LoRa pins here,
+  not a real AIO v2 board). Upstream assumed AIO v2's GPIOs gate the USB
+  port's own power on the uConsole; the CardputerZero's USB host ports are
+  just always-on, so that gate has no CardputerZero equivalent at all and the
+  original methods could never succeed here. Fixed with a new
+  `free_sdr_usb_from_the_aio_gate()` in `host.py` (same "monkeypatch at
+  runtime, no vendored edit" pattern as the rest of the module) that makes
+  both toggles software-only, same shape GPS/LoRa already use. **Second,
+  smaller bug — mine, not the game's**: after the fix, ADS-B Radar still said
+  "dump1090 not installed" even though `/usr/local/bin/dump1090` is right
+  there — because the manual `export PATH=/usr/sbin:/usr/bin:/sbin:/bin` I'd
+  been using to launch the game over SSH (to pick up `iw`/`systemctl` in
+  `/usr/sbin`) *replaced* the login shell's `PATH` instead of appending to
+  it, dropping `/usr/local/bin`. Switched to `export PATH="$PATH:/usr/sbin:
+  /sbin"` for all future manual launches. **Verified live** after both fixes,
+  SDR plugged in: SDR toggle ON, ADS-B Radar started `dump1090` with a live
+  sweep, stopped it, 433 MHz Scanner started `rtl_433`, stopped it, SDR
+  toggle OFF — all through the real menu, `dump1090`/`rtl_433` processes
+  confirmed gone afterwards. Always killed the game with `quit`/`SIGINT` and
+  checked `ps aux` before each relaunch this time (CLAUDE.md gotcha from
+  earlier today) — no stray processes.
 
 - **2026-11-19 (found and fixed the LoRa init bug: `LoRaRF` was never installed in the device venv)** —
   Investigated the race condition logged in the previous entry ("LoRa enabled"
