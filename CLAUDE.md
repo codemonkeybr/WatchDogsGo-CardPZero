@@ -23,13 +23,16 @@ CardputerZero App Store (`czdev publish`).
 - Upstream: `https://github.com/LOCOSP/WatchDogsGo` (remote `origin` in that
   checkout; the fork is remote `fork`).
 - As of 2026-11-18, that checkout has `main` at `7427fbf` ("feat(portal):
-  WDGWars client parity") and is currently sitting on branch
-  `feat/aiov2-wifi-bt-fallback` at `cad1e77`, 6 commits ahead of `main`,
-  clean (no uncommitted changes).
-- **Decide before Phase 1** which ref to vendor from — `main` for the
-  conservative baseline, or the feature branch if the AIO v2 WiFi/BT fallback
-  work should be in the CardputerZero port too (that specific feature is
-  uConsole/AIO-v2-specific and likely gets stubbed out anyway, see below).
+  WDGWars client parity", same as `origin/main`) and is currently on branch
+  `feat/aiov2-wifi-bt-fallback` at `cad1e77`, **4 commits ahead of `main`**,
+  clean. That branch exists only on the owner's fork (`fork/...`), not on
+  `origin`.
+- **Decided: vendor from `feat/aiov2-wifi-bt-fallback` @ `cad1e77`**, because
+  it carries the game-side fallback that lets the game run on the host's own
+  WiFi/BT through an ESP32-emulating bridge (see "Internal WiFi/BT" below) —
+  the owner wants that as a selectable option on CardputerZero. Since it's
+  unmerged work, always record the SHA when vendoring and re-check upstream
+  `main` for drift before each sync.
 - This repo does not vendor that code yet. When it does, record the exact
   source commit hash in the commit that adds it, so drift from upstream stays
   traceable.
@@ -95,6 +98,47 @@ line-based results back at 115200 baud. `serial_manager.py` talks to it over
 `/dev/ttyUSB*`/`/dev/ttyACM*` — this should plug into the CardputerZero's
 USB-A/USB-C **host**-mode ports with no protocol changes, only needs
 re-verifying that `detect_esp32_port()`'s heuristics still find it.
+
+### Internal WiFi/BT as a selectable scan source
+
+The owner wants WiFi/BLE wardriving to be able to use the CardputerZero's
+**own radio** instead of (or alongside) the ESP32. Upstream already has the
+mechanism, which is why we vendor from the feature branch:
+
+- `wdg_wifi_bridge.py` (repo root, community-contributed) opens a PTY and
+  emulates an ESP32 projectZero over it: WiFi scans via `iw dev <iface>
+  scan`, BLE scans via `bleak` on an `hci` adapter, plus Popen dispatch to
+  optional helper scripts (`hs_capture.py` for handshakes). It rate-limits
+  scans (`SCAN_COOLDOWN` = 5 s) and serves cached results on timeout.
+- Game side (the 4 feature-branch commits): `serial_manager.py`'s
+  `detect_aiov2_bridge_port()` returns `/tmp/aiov2-pty` when no real ESP32 is
+  found, and `app.py` then runs the *same* serial protocol and parsing
+  (`_via_aiov2_bridge` only suppresses firmware-version nagging and tweaks
+  status text). WiFi and BT wardriving can run concurrently and be stopped
+  independently.
+- Today the choice is implicit ("ESP32 if present, else bridge"). The owner
+  wants an explicit option, so add a scan-source setting (`auto` | `esp32` |
+  `internal`; env/`secrets.conf` + a SYSTEM-menu entry) instead of relying
+  on autodetect. Using both at once would mean two serial links merged in
+  `app.py` — out of scope until the single-source path works.
+- The "AIO v2" naming in upstream strings is uConsole-specific; in this
+  fork, change only user-visible strings (to "internal WiFi/BT") and keep
+  identifiers as-is where possible, to keep merges from upstream cheap.
+
+Expected capability split (reasoned from the radio specs, **not yet verified
+on the device** — see ROADMAP 0.9):
+
+| | Internal radio (managed-mode `iw scan` + BlueZ) | ESP32 (projectZero) |
+|---|---|---|
+| WiFi wardriving | yes, **2.4 GHz only** | yes; dual-band if the board is the ESP32-C5 upstream targets |
+| BLE wardriving, AirTag scan, BT tracker | yes (BT 4.2-class: legacy advertising only) | yes |
+| Deauth, handshake capture, sniffer, Evil Twin, SAE flood | **not expected** — needs monitor mode/injection, which stock drivers for this chip class are not expected to offer | yes |
+
+Practical caveats: `wlan0` is probably also the device's only uplink
+(WDGWars upload, map tiles, ssh), so scanning while associated may briefly
+hurt throughput; triggering an `iw` scan normally needs `CAP_NET_ADMIN`
+(reading cached results does not), which feeds into the privilege-model
+decision below; `hci0` naming and BT-UART bring-up on the CM0 are unverified.
 
 ### SDR: NooElec NESDR SMART (RTL-SDR)
 
@@ -198,8 +242,12 @@ they'll bite:
    interpreter), udev rules granting group access to `/dev/ttyUSB*`,
    `/dev/spidev*`, GPIO chardev, or a small privileged helper
    process/socket that the unprivileged game talks to for just the
-   root-requiring operations. Needs resolving before Phase 3 packaging, and
-   ideally validated on hardware in Phase 0.
+   root-requiring operations. A fourth option is probably the cleanest if
+   the installer allows it: keep the service non-root (`User=`) and grant
+   only what's needed with systemd `AmbientCapabilities=CAP_NET_RAW
+   CAP_NET_ADMIN` (scoped to the unit, not to the interpreter) — whether the
+   CardputerZero tooling accepts that is unverified. Needs resolving before
+   Phase 3 packaging, and ideally validated on hardware in Phase 0.
 2. **Screen: 640×360 → 320×170.** Not a clean /2 scale on either axis
    (640/320=2.0, 360/170≈2.12) and the aspect ratio differs slightly
    (16:9 vs ~1.88:1). `app.py` hardcodes pixel-space layout throughout
@@ -213,6 +261,18 @@ they'll bite:
    for the actual device — unclear whether `pyxel`'s SDL2-based renderer
    runs as-is on-device, or whether there's no X11/Wayland and it needs a
    bare-KMS/fbdev target. **First thing to test once hardware is in hand.**
+   *Desktop findings (2026-11-18):* by default `pyxel` (2.9.9 and 3.0.2 both
+   tested) creates an **OpenGL** window and panics on SDL's `dummy` driver,
+   so it can't start on a bare framebuffer/SPI panel without GL. But
+   `pyxel.init(..., headless=True)` works with no display and no GL:
+   `pyxel.screen.data_ptr()` yields the 320×170 palette-index buffer
+   (a ctypes `c_uint8` array) and the BDF fonts/text render normally.
+   Candidate device architecture, pending the probe results: run the game
+   headless plus a small platform shim — evdev keyboard → `pyxel.set_btn()`,
+   screen buffer → RGB565 → the panel's fb/DRM node. Upstream currently calls
+   `pyxel.init(..., display_scale=2)` + `pyxel.fullscreen(True)` and
+   monkey-patches `pyxel.text`, so a headless switch is a contained change
+   (whether `fullscreen()` is harmless when headless is still to be checked).
    Lower pixel count (320×170 vs 640×360, ~4× fewer pixels) should help
    performance either way given the CM0's modest CPU.
 4. **Keyboard remap.** Confirmed from `docs.m5stack.com/.../usage`:
@@ -265,14 +325,23 @@ feature-parity pass + community feedback (no App Store submission yet).
 
 ## Open questions for the owner
 
-- Which upstream ref to vendor from: `main` (`7427fbf`) or
-  `feat/aiov2-wifi-bt-fallback` (`cad1e77`)?
 - Confirm the LoRa+GPS module's exact part name/chip once it's visible on
   the hardware (SX1261 vs SX1262 — public docs for the closest matching
   M5Stack product say SX1262).
 - Is the CardputerZero or CardputerZero-Lite variant in hand (affects
   camera/IMU/bundled-SD assumptions, though none of those matter much to
   this port)?
+
+## Working agreements
+
+- `ROADMAP.md` is the source of truth for status. At the end of each work
+  session, update the task checkboxes/status and append a line to its
+  progress log, so the next session can resume from the file alone.
+- Talk to the owner in Portuguese; keep repo docs, code comments and
+  commit messages in English.
+- UI fidelity to the original is a priority — keep palette, fonts, widget
+  styles and the per-tab character art; only re-budget layout for 320×170.
+  Details live in `docs/ui-adaptation.md`.
 
 ## Commit conventions for this repo
 

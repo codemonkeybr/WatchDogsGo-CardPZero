@@ -1,0 +1,88 @@
+# UI adaptation: 640×360 → 320×170
+
+**Status: proposal.** Based on the upstream screenshots
+(`/home/tesso/dev/WatchDogsGo/docs/screenshots/`, 1280×720 = the 640×360
+canvas at 2×) and a read of `watchdogs/app.py`. Nothing is implemented.
+
+**Goal (owner):** stay as faithful to the original as possible; change only
+what the smaller screen forces. The rule of thumb: **keep the look, re-budget
+the layout** — text is never scaled, it just gets fewer columns and lines.
+
+## The budget
+
+| | Upstream (uConsole) | CardputerZero |
+|---|---|---|
+| Canvas | 640×360 = 230,400 px | 320×170 = 54,400 px (23.6 %) |
+| UI font | Spleen 5×8, 9 px line pitch | same, at native size |
+| Text capacity | ~126 cols × ~40 lines | ~62 cols × ~18 lines |
+| Terminal pane | 110 px ≈ 12 lines × ~126 cols | must shrink (see below) |
+| Physical text size | ~147 PPI effective (5″ 1280×720 shown at 2×, approx.) | ~190 PPI (1.9″, 320×170) → glyphs ≈ ⅕ smaller in real size |
+
+The last row is the one real unknown: 5×8 glyphs should still be crisp (a
+desktop render looked clean) but legibility on the actual 1.9″ panel needs an
+on-device check before committing to the font size.
+
+## Keep 1:1 (the identity)
+
+- The 16-colour pyxel palette and the cyan-on-navy grid look.
+- Spleen 5×8 at native size (the 8×8 font only where it still fits).
+- HUD strip style, XP bar, badge chips, the tab bar with its highlighted
+  selection row, `[x]` hotkey brackets.
+- The per-tab hacker art + speech bubble, radar sweep widget, player marker,
+  cluster bubbles, MeshCore toasts, colour-coded terminal output.
+- Boot screen / logo, loot screen structure.
+
+## What has to change (proposed)
+
+1. **HUD top, 16 → ~10 px.** Always show: `LV:13 GHOST`, XP bar, battery.
+   The seven badge chips (~175 px today) collapse to earned-only or a count;
+   the zoom label moves into the map corner.
+2. **HUD bottom, 16 → ~10 px.** Keep the counters (BLE / WiFi / HS / PWD /
+   PWN) and GPS/LoRa state. Drop the `[TAB]Menu [`]Loot [S]Stop` hints —
+   move them to a help overlay on `fn+H`, which is the CardputerZero's own
+   convention for "show app help".
+3. **Terminal: always-on pane → 3–4 line ticker + full-screen overlay.**
+   The terminal is core to the "real tooling" feel, so it stays reachable on
+   one key; it just stops owning 110 px permanently. Lines wrap/truncate at
+   ~62 columns (most upstream log lines are ≤ 56 chars already).
+4. **Map: 218 px → ~110–120 px strip.** Radar (~41 px circle today) can stay
+   roughly as is; the small decorative radio sprite can go.
+5. **Menu screen.** Upstream: list on the left, ~170×235 px hacker art on
+   the right. Proposal: list ~220 px wide (≈44 cols; the item labels in the
+   screenshots are ≤ ~25 chars) and the art at **exactly ½ scale**
+   (171×256 → ~85×128 — an integer downscale keeps pixel art clean), speech
+   bubble over its top. The five tab sprites need regenerating at the new
+   size from the 848×1264 sources with the existing `convert_sprite.py` /
+   `generate_hacker_sprite.py`, then a hand check.
+6. **Sub-screens (the long tail, ~40 `_draw_*` methods).** MeshCore chat,
+   MITM, Flipper, ESP32 flasher, captured data, network/portal pickers,
+   whitelist, dialogs: each is a full-screen layout built off `W`/`H`. Review
+   one by one; lists truncate at ~62 cols; the MeshCore chat moves from the
+   8×8 font (40 cols) to Spleen (62 cols).
+7. **Key hints** use the CardputerZero labels (arrows are `fn`+F/X/Z/C,
+   Page Up/Down `fn`+L/M) — see the keyboard section of
+   `docs/hardware-notes.md`.
+
+## How to structure the code (decision for the owner)
+
+- **A — display profiles (recommended).** Add a small `layout.py` with named
+  rectangles computed per profile (`uconsole` / `cardputer`); `app.py`'s
+  `W`, `H`, `HUD_*`, `TERM_*`, `MAP_H` read from it, and the draw functions
+  that must differ branch on the profile. One codebase serves both devices,
+  upstream merges stay cheap, and the result could be offered back upstream.
+- **B — hard fork.** Rewrite the layout in place: fastest route to a 320×170
+  look, but every future upstream merge collides in the same ~7.9k-line
+  `app.py`.
+
+Suggested split: profile constants for HUD / terminal / map; accept
+per-profile draw code only for the menu screen and the sub-screens.
+
+## Workflow: this part needs no device
+
+pyxel runs headless on a dev machine (`pyxel.init(headless=True)`, then
+`pyxel.screen.save(path, scale)` — verified with 2.9.9 and 3.0.2, see
+`tools/pyxel-smoke.py`). So each screen can be rendered to a PNG at 320×170
+and reviewed next to the upstream screenshot. Plan: a small script that
+drives the game into its canonical states (main, each menu tab, loot,
+MeshCore, MITM) and dumps one PNG per state, so layout work is a tight
+edit → render → compare loop with no hardware in the way.
