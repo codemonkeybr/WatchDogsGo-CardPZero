@@ -30,7 +30,7 @@ scope now: publishing to the CardputerZero AppStore (`czdev publish`).
 | `docs/launcher-guidelines.md` | How APPLaunch and M5's AppBuilder work, and what we adopt. |
 | `docs/ui-adaptation.md` | Proposal for re-budgeting the UI from 640×360 to 320×170. |
 | `docs/portal-rules.md` | Upstream's rules for forks that talk to the WDGWars portal. |
-| `czplatform/` | **Our platform layer** (§5): runs the unmodified vendored game on the CardputerZero — `display.py` (RGB565 → `mmap` fb0), `keys.py` (evdev → `pyxel.set_btn`), `shim.py` (headless pyxel, main loop, SIGINT), `host.py` (**makes the uConsole GPIO code safe**, points LoRa/GPS at the Cap), `__main__.py` (entry point: `python -m czplatform`). |
+| `czplatform/` | **Our platform layer** (§5): runs the unmodified vendored game on the CardputerZero — `display.py` (RGB565 → `mmap` fb0), `keys.py` (evdev → `pyxel.set_btn`), `shim.py` (headless pyxel, main loop, SIGINT), `host.py` (**makes the uConsole GPIO code safe**, points LoRa/GPS at the Cap), `profile.py` + `ui320.py` (the 320×170 canvas and its compact HUD/terminal/menu drawing, installed at run time only in that profile — see `docs/ui-adaptation.md`), `__main__.py` (entry point: `python -m czplatform`). |
 | `tests/` | Unit tests for `czplatform` (no hardware needed): `.venv/bin/python -m unittest discover -s tests -v`. They also pass on the device. |
 | `tools/` | Device probes and test programs (§8). |
 | `dev/` (gitignored) | Generated on the device only: wrapper script, `.desktop`, logs. |
@@ -46,18 +46,24 @@ WiFi/BT characteristics; the packaging model.
 
 **Done in the repo:** game code vendored unmodified; the platform layer
 `czplatform/` (display, keyboard, signals, host safety) with 25 passing unit
-tests; docs; probes/tools. **The real game now runs headless through it** —
+tests; docs; probes/tools. **The 320×170 UI is under way** — top/bottom HUD,
+terminal ticker and menu are done as a compact layer (`czplatform/ui320.py`,
+`--canvas 320x170`; samples in `docs/screenshots/`), with ≈45–64 MiB RSS on the
+CM0; the boot screen and the sub-screens still need work (ROADMAP 1.2).
+**The real game now runs headless through it** —
 on the dev machine (`--dry-run` renders the boot screen to a PNG) and on the
 device without hardware attached: 30 fps, ≈112–119 MiB RSS, ≈2 s startup, 21–41%
 of one core (ROADMAP 1.7, 0.10).
 
-**Not done yet — be honest about it:** the game has **not yet been seen on the
-real panel with the real keyboard** (the owner launches `wdg-game` from the
-carousel next — one `sudo install`). It still draws its 640×360 canvas, shown
-on the 320×170 panel only through the interim `--view scale|crop` (the real
-re-layout is ROADMAP 1.2). Unexercised on hardware: ESP32, NESDR/RTL-SDR,
-LoRa packets (RX/TX), a GPS fix, WiFi/BLE scanning through the internal-radio
-bridge, raw sockets without root, SIGINT through the Home long-press.
+**Seen on the real panel (owner, 2026-11-18):** the game runs from the
+carousel. Its log shows the keyboard, the Cap rail and the GPS port
+(`/dev/ttyS0` @ 115200) working, 30 fps with the framebuffer write, and a clean
+exit through the game's own quit path. **Not done yet — be honest about it:** it
+still draws its 640×360 canvas, shown on the 320×170 panel only through the
+interim `--view scale|crop`, i.e. illegible (the real re-layout is ROADMAP 1.2).
+Unexercised on hardware: ESP32, NESDR/RTL-SDR, LoRa packets (RX/TX), a GPS *fix*,
+WiFi/BLE scanning through the internal-radio bridge, raw sockets without root,
+SIGINT through the Home long-press, typed text and the sym layer.
 
 ## 4. Hardware as measured
 
@@ -268,6 +274,8 @@ their uConsole workflow). In short:
 | `fb-blit-test.py` | headless pyxel → fb0 write benchmark. Run over SSH it fights the launcher (see gotchas) |
 | `lora-pin-probe.py` | RX-only SX126x pin/TCXO probe, on the device. **Close M5's LoRa/GPS apps first** (they hold the GPIO lines/SPI). `--tcxo` enables the DIO3 supply |
 | `cz-demo.py` + `make-dev-entry.sh` | launcher-integration demo (draws, logs evdev keys) and the generator of the wrapper + `.desktop` |
+| `ui-tour.sh` | **the UI review loop, no hardware**: runs the real game headless with the demo loot DB (`tests/fixtures/demo-data`), a fake 82 % battery and a scripted key tour, writing one PNG per screen (boot, main, each menu tab). `tools/ui-tour.sh [outdir] [320x170\|640x360]` |
+| `make-sprites.py` | generates the half-size (85×128) menu sprites and the small radio icon into `assets/cz/` from the hi-res art, with the game's own palette pipeline |
 | `fb-screenshot.py` | screenshot of the panel by reading fb0 over SSH. Reads a **single colour when the launcher has locked the screen** (30 s after an app exits or after idle) — press a key on the device and retry |
 
 ### Running the game
@@ -275,9 +283,14 @@ their uConsole workflow). In short:
 ```bash
 # dev machine: the REAL game, headless, no hardware — saves the panel view and the full canvas
 .venv/bin/python -m czplatform --dry-run --frames 150      # -> czplatform-dryrun.png, czplatform-dryrun-canvas.png
+tools/ui-tour.sh ./ui-tour 320x170                          # one PNG per screen (boot, main, each menu tab)
 .venv/bin/python -m unittest discover -s tests -v          # 25 tests, no hardware
-# device: from the carousel — the wrapper dev/wdg-game.sh runs `python -m czplatform --view scale`
+# device: from the carousel — the wrapper dev/wdg-game.sh runs `python -m czplatform --canvas 320x170`
 ```
+
+Dev flags for UI work: `--canvas 640x360|320x170`, `--seed DIR` (a loot DB
+fixture copied into the dry-run data dir), `--script 'wait:N,key:NAME,png:PATH,quit'`
+(a scripted keyboard; `CZ_FAKE_BATTERY=NN` fakes the battery).
 
 `--dry-run` uses a throw-away HOME and data dir, so nothing lands in `~/.watchdogs*`
 or in the repo (`loot/` and `maps/` are gitignored anyway). Dev needs `pyxel`,
@@ -308,6 +321,12 @@ lines on stderr), `--data-dir`, `--serial`.
   the game instance with `update.__self__` to call its `_cleanup()`.
 - **Never run the vendored game on the device without `czplatform`** (§6, uConsole
   GPIO hazard).
+- **Compact-UI drift**: `ui320.py` replaces whole methods of `WatchDogsGame`
+  (`_draw_hud_top`, `_draw_hud_bottom`, `_draw_terminal`, `_draw_menu`,
+  `_draw_menu_hacker`, `_load_hacker_sprite`, a wrapper on `_draw_messages`) at
+  run time. After every upstream sync, diff those methods against upstream — new
+  HUD items or menu behaviour won't appear in the 320×170 layout until mirrored —
+  and re-run `tools/ui-tour.sh`.
 - Default pyxel needs OpenGL → always `headless=True` here.
 - **Never draw on `/dev/fb0` from an SSH shell while the launcher is active**:
   it keeps repainting its own frame and wipes yours. If you must, stop it

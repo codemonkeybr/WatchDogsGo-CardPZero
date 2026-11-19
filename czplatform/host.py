@@ -75,10 +75,36 @@ def point_lora_at_the_cap():
              LORA_SPI_CS, LORA_PIN_RESET, LORA_PIN_BUSY, LORA_PIN_IRQ)
 
 
+BATTERY_CAPACITY = "/sys/class/power_supply/bq27220-0/capacity"
+
+
+def read_battery():
+    """Battery percentage from the CardputerZero's BQ27220 gauge (-1 if absent).
+
+    ``CZ_FAKE_BATTERY=NN`` overrides it, for previewing the HUD on a dev machine.
+    """
+    fake = os.environ.get("CZ_FAKE_BATTERY")
+    if fake:
+        return int(fake)
+    try:
+        with open(BATTERY_CAPACITY) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return -1
+
+
+def use_the_bq27220_gauge():
+    """The game reads the uConsole's AXP20x PMIC; here it is a BQ27220."""
+    from watchdogs import app
+
+    app.WatchDogsGame._read_battery = staticmethod(read_battery)
+
+
 def adapt_game():
     """Apply every runtime adaptation. Call after importing, before constructing."""
     make_aio_inert()
     point_lora_at_the_cap()
+    use_the_bq27220_gauge()
 
 
 class CapRail:

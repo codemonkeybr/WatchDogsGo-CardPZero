@@ -30,6 +30,13 @@ def parse_args(argv):
     ap.add_argument("--no-input", action="store_true", help="no keyboard")
     ap.add_argument("--view", choices=("scale", "crop"), default="scale",
                     help="how a canvas larger than 320x170 is shown (default scale)")
+    ap.add_argument("--canvas", choices=("640x360", "320x170"), default="640x360",
+                    help="the game's canvas size: the original 640x360 layout, or "
+                         "320x170 (the panel, 1:1) — see profile.py")
+    ap.add_argument("--script", default=None,
+                    help="comma-separated dev steps, e.g. "
+                         "'wait:60,key:RETURN,wait:90,png:main.png,quit' "
+                         "(wait:N frames, key:NAME, png:PATH, quit)")
     ap.add_argument("--png", default=None, help="save the panel view to a PNG ...")
     ap.add_argument("--frames", type=int, default=0,
                     help="... after this many frames, then exit")
@@ -42,6 +49,9 @@ def parse_args(argv):
     ap.add_argument("--cap-power", choices=("auto", "on", "off"), default="auto",
                     help="switch the Cap's 5 V rail on while the game runs "
                          "(auto: when writable and not a dry-run)")
+    ap.add_argument("--seed", default=None,
+                    help="with --dry-run: copy this directory (e.g. "
+                         "tests/fixtures/demo-data) into the throw-away data dir")
     ap.add_argument("--verbose", action="store_true",
                     help="also print czplatform's log lines (fps, RSS) to stderr")
     ap.add_argument("--dry-run", action="store_true",
@@ -63,6 +73,10 @@ def main(argv=None) -> int:
         os.environ["HOME"] = scratch        # keep ~/.watchdogs* out of the real HOME
         args.no_fb = args.no_input = True
         args.data_dir = args.data_dir or scratch
+        if args.seed:
+            import shutil
+            shutil.copytree(os.path.abspath(args.seed), args.data_dir,
+                            dirs_exist_ok=True)
         args.png = args.png or "czplatform-dryrun.png"
         args.frames = args.frames or 120
     if args.png:
@@ -88,8 +102,12 @@ def main(argv=None) -> int:
 
     panel = display.Panel(None if args.no_fb else args.fb, view=args.view)
     injector = None if args.no_input else keys.KeyInjector(pyxel, args.input)
+    script = [s for s in args.script.split(",") if s] if args.script else None
+    if script:
+        args.png = None                      # the script decides what to capture
     runtime = shim.Runtime(pyxel, panel, injector, png=args.png,
-                           frames=args.frames, stats_every=args.stats_every)
+                           frames=args.frames, stats_every=args.stats_every,
+                           script=script)
     runtime.install()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, runtime.request_stop)
@@ -98,6 +116,8 @@ def main(argv=None) -> int:
     from watchdogs.serial_manager import detect_esp32_port
 
     host.adapt_game()                        # AIO v2 inert, LoRa on the Cap's pins
+    from . import profile
+    profile.apply(args.canvas)               # canvas size (before the game is built)
     if args.cap_power == "on" or (args.cap_power == "auto" and not args.dry_run):
         host.CapRail().on()
 

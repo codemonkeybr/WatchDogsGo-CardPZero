@@ -17,6 +17,7 @@ it executes, so cleanup must happen *before* calling it.
 """
 from __future__ import annotations
 
+import collections
 import logging
 import os
 import time
@@ -37,13 +38,17 @@ def rss_mib():
 
 class Runtime:
     def __init__(self, pyxel, panel, keys=None, png=None, frames=0,
-                 stats_every=5.0):
+                 stats_every=5.0, script=None):
         self.pyxel = pyxel
         self.panel = panel
         self.keys = keys
         self.png = png
         self.frames = frames
         self.stats_every = stats_every
+        self.script = collections.deque(script or [])
+        self._script_on = bool(script)
+        self._script_wait = 0
+        self._script_release = []                  # (frame, key) to let go of
         self.stop_requested = False
         self.game = None
         self.frame = 0
@@ -89,6 +94,8 @@ class Runtime:
         def update_wrapper():
             if self.keys is not None:
                 self.keys.poll()
+            if self._script_on:
+                self._step_script()
             if self.stop_requested:
                 self.shutdown("signal")
             update()
@@ -105,6 +112,41 @@ class Runtime:
                 self._capture()
 
         self._real_run(update_wrapper, draw_wrapper)
+
+    # -- scripted input (dev tool: --script) ---------------------------------
+
+    def _step_script(self):
+        """Tiny driver for hardware-free UI review: ``wait:N`` frames,
+        ``key:NAME`` (a 2-frame press of ``pyxel.KEY_<NAME>``), ``png:PATH``
+        (panel view), ``quit``. Runs at the start of ``update``."""
+        px = self.pyxel
+        due = [k for f, k in self._script_release if f <= self.frame]
+        for key in due:
+            px.set_btn(key, False)
+        self._script_release = [(f, k) for f, k in self._script_release
+                                if f > self.frame]
+        if self._script_wait > 0:
+            self._script_wait -= 1
+            return
+        while self.script:
+            cmd, _, arg = self.script.popleft().partition(":")
+            if cmd == "wait":
+                self._script_wait = max(0, int(arg) - 1)
+                return
+            if cmd == "key":
+                key = getattr(px, "KEY_" + arg.strip().upper())
+                px.set_btn(key, True)
+                self._script_release.append((self.frame + 2, key))
+                self._script_wait = 2
+                return
+            if cmd == "png":
+                self.panel.save_png(os.path.abspath(arg))
+                log.info("script: wrote %s", arg)
+            elif cmd == "quit":
+                self.shutdown("script finished")
+            else:
+                raise ValueError(f"unknown script step {cmd!r}")
+        self.shutdown("script finished")
 
     # -- bookkeeping ---------------------------------------------------------
 

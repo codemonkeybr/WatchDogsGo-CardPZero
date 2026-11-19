@@ -35,7 +35,7 @@ EOF
 cat >"$ROOT/dev/wdg-game.sh" <<EOF
 #!/bin/sh
 cd "$ROOT"
-exec "$ROOT/.venv/bin/python" -m czplatform --view scale
+exec "$ROOT/.venv/bin/python" -m czplatform --canvas 320x170
 EOF
 chmod 0755 "$ROOT/dev/wdg-game.sh"
 
