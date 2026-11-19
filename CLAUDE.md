@@ -45,7 +45,7 @@ LoRa pins and its TCXO requirement; GPS NMEA over `/dev/ttyS0`; the internal
 WiFi/BT characteristics; the packaging model.
 
 **Done in the repo:** game code vendored unmodified; the platform layer
-`czplatform/` (display, keyboard, signals, host safety) with 25 passing unit
+`czplatform/` (display, keyboard, signals, host safety) with 45 passing unit
 tests; docs; probes/tools. **The 320×170 UI is under way** — top/bottom HUD,
 the map/log split (ENTER switches between the map and a full-screen log) and the menu are done as a compact layer (`czplatform/ui320.py`,
 `--canvas 320x170`; samples in `docs/screenshots/`), with ≈45–64 MiB RSS on the
@@ -291,13 +291,20 @@ their uConsole workflow). In short:
 # dev machine: the REAL game, headless, no hardware — saves the panel view and the full canvas
 .venv/bin/python -m czplatform --dry-run --frames 150      # -> czplatform-dryrun.png, czplatform-dryrun-canvas.png
 tools/ui-tour.sh ./ui-tour 320x170                          # one PNG per screen (boot, main, each menu tab)
-.venv/bin/python -m unittest discover -s tests -v          # 25 tests, no hardware
+.venv/bin/python -m unittest discover -s tests -v          # 45 tests, no hardware
 # device: from the carousel — the wrapper dev/wdg-game.sh runs `python -m czplatform --canvas 320x170`
 ```
 
 Dev flags for UI work: `--canvas 640x360|320x170`, `--seed DIR` (a loot DB
 fixture copied into the dry-run data dir), `--script 'wait:N,key:NAME,png:PATH,quit'`
-(a scripted keyboard; `CZ_FAKE_BATTERY=NN` fakes the battery).
+(a scripted keyboard; also `log:TEXT` to add a log line; `CZ_FAKE_BATTERY=NN`
+fakes the battery). **`--control FIFO`** takes the same steps from a named pipe
+into a *running* game (`echo key:RETURN,wait:10 > FIFO`; no commas inside `log:`
+text) — keys go through the real keyboard path, so the input filter applies —
+which is how the UI is driven and checked on the real panel over SSH together
+with `tools/fb-screenshot.py` (stop the launcher first and restart it after; use
+a wrapper script, and don't `pkill -f` a pattern that appears in your own ssh
+command line).
 
 `--dry-run` uses a throw-away HOME and data dir, so nothing lands in `~/.watchdogs*`
 or in the repo (`loot/` and `maps/` are gitignored anyway). Dev needs `pyxel`,

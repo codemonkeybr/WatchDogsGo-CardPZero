@@ -177,6 +177,91 @@ class InjectorTest(unittest.TestCase):
         self.inj.poll()
         self.assertEqual(self.fake.calls, [(left, True), (left, True)])
 
+    def test_a_tap_presses_and_releases_on_the_next_poll(self):
+        self.inj.tap(28)
+        self.assertEqual(self.fake.calls, [(pyxel.KEY_RETURN, True)])
+        self.inj.poll()
+        self.assertEqual(self.fake.calls,
+                         [(pyxel.KEY_RETURN, True), (pyxel.KEY_RETURN, False)])
+        self.inj.poll()                                  # and nothing more
+        self.assertEqual(len(self.fake.calls), 2)
+
+    def test_the_filter_can_consume_events(self):
+        seen = []
+        self.inj.filter = lambda code, value: seen.append((code, value)) or code == 28
+        self.send(event(28, 1), event(105, 1))
+        self.inj.poll()
+        self.assertEqual(seen, [(28, 1), (105, 1)])
+        self.assertEqual(self.fake.calls, [(pyxel.KEY_LEFT, True)])   # ENTER never got through
+
+    def test_a_tap_goes_through_the_filter_too(self):
+        self.inj.filter = lambda code, value: True
+        self.inj.tap(28)
+        self.inj.poll()
+        self.assertEqual(self.fake.calls, [])
+
+    def test_names_map_back_to_evdev_codes(self):
+        self.assertEqual(keys.NAME_TO_EVDEV["RETURN"], 28)
+        self.assertEqual(keys.NAME_TO_EVDEV["TAB"], 15)
+        self.assertEqual(keys.NAME_TO_EVDEV["UP"], 103)
+
+
+class ControlTest(unittest.TestCase):
+    """``--control``: script steps arriving through a FIFO into a running game."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.fifo = os.path.join(self.tmp.name, "ctl")
+        self.fake = FakePyxel()
+        self.rt = shim.Runtime(self.fake, panel=None, control=self.fifo)
+
+    def tearDown(self):
+        os.close(self.rt._ctl_fd)
+        os.close(self.rt._ctl_keep)
+        self.tmp.cleanup()
+
+    def write(self, text):
+        os.write(self.rt._ctl_keep, text.encode())
+
+    def test_lines_become_script_steps(self):
+        self.write("key:RETURN,wait:5\nkey:TAB\n")
+        self.rt._read_control()
+        self.assertEqual(list(self.rt.script), ["key:RETURN", "wait:5", "key:TAB"])
+        self.assertTrue(self.rt._script_on)
+
+    def test_an_empty_pipe_adds_nothing(self):
+        self.rt._read_control()
+        self.assertEqual(list(self.rt.script), [])
+
+    def test_control_mode_does_not_quit_when_the_steps_run_out(self):
+        self.write("wait:1")
+        self.rt._read_control()
+        for _ in range(3):
+            self.rt._step_script()
+        self.assertNotIn("quit", self.fake.calls)
+
+    def test_a_plain_script_quits_when_it_ends(self):
+        rt = shim.Runtime(self.fake, panel=None, script=["wait:1"])
+        rt._step_script()
+        rt._step_script()
+        self.assertIn("quit", self.fake.calls)
+
+    def test_script_keys_use_the_keyboard_path_when_there_is_one(self):
+        path = os.path.join(self.tmp.name, "events")
+        os.mkfifo(path)
+        inj = keys.KeyInjector(self.fake, device=path)
+        self.addCleanup(inj.close)
+        inj.filter = lambda code, value: code == 105     # consumes LEFT only
+        rt = shim.Runtime(self.fake, panel=None, keys=inj,
+                          script=["key:RETURN", "key:LEFT"])
+        rt._step_script()
+        self.assertEqual(self.fake.calls, [(pyxel.KEY_RETURN, True)])
+        inj.poll()                                       # release
+        rt._script_wait = 0
+        rt._step_script()
+        self.assertEqual(self.fake.calls[-1], (pyxel.KEY_RETURN, False))
+        self.assertNotIn((pyxel.KEY_LEFT, True), self.fake.calls)   # consumed
+
 
 class ShutdownTest(unittest.TestCase):
     def test_cleanup_runs_before_quit(self):

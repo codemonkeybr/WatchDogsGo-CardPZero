@@ -109,7 +109,9 @@ Keeping the original's always-on terminal under the map costs too much of a
   log).
 - **Log view** — a full-screen `> OUTPUT` panel: 15 lines, newest at the bottom,
   `L:<total>` and the running tool or `SCROLL +n` in the title. The map's radar
-  and toasts are hidden meanwhile.
+  and toasts are hidden meanwhile, and so are the game's CRT sweep lines (`_draw_scanlines`), which
+  struck through the text on a 170 px screen — they stay on the map only (the menu
+  too hides them).
 - **Keys**: **ENTER** (OK) toggles map ↔ log, only while the map is the active
   screen (not in a menu, dialog, attack flow or sub-screen) — the original game
   doesn't use ENTER there. In the log view the arrows (`fn`+`F/X/Z/C`), PgUp/PgDn

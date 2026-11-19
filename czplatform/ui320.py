@@ -15,10 +15,13 @@ Widths are computed from the actual strings (5 px per glyph) so nothing overlaps
 """
 from __future__ import annotations
 
+import logging
 import struct
 from pathlib import Path
 
 import pyxel
+
+log = logging.getLogger("czplatform.ui")
 
 CW = 5                      # Spleen 5x8 glyph advance
 
@@ -309,6 +312,8 @@ def _update_view(self):
         view = "log" if view == "map" else "map"
         if view == "map":
             self.term_scroll = 0                  # the ticker shows the newest
+    if view != getattr(self, "_cz_view", "map"):
+        log.info("view: %s -> %s", getattr(self, "_cz_view", "map"), view)
     self._cz_view = view
 
 
@@ -557,6 +562,10 @@ def install():
     G._draw_messages = _hide_when(G._draw_messages,
                                   lambda g: g.menu_open or _in_log(g))
     G._draw_radar = _hide_when(G._draw_radar, _in_log)
+    # the CRT sweep lines cross the text on a 170 px screen: keep them on the map
+    # only (legibility over ornament where there is something to read)
+    G._draw_scanlines = _hide_when(G._draw_scanlines,
+                                   lambda g: g.menu_open or _in_log(g))
 
     original_update = G.update                  # ENTER toggles map <-> log
 

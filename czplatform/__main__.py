@@ -37,6 +37,10 @@ def parse_args(argv):
                     help="comma-separated dev steps, e.g. "
                          "'wait:60,key:RETURN,wait:90,png:main.png,quit' "
                          "(wait:N frames, key:NAME, png:PATH, quit)")
+    ap.add_argument("--control", default=None, metavar="FIFO",
+                    help="a named pipe taking dev steps for a running game, e.g. "
+                         "'echo key:RETURN,wait:10,png:/tmp/a.png > FIFO' "
+                         "(same steps as --script; keys go through the keyboard path)")
     ap.add_argument("--png", default=None, help="save the panel view to a PNG ...")
     ap.add_argument("--frames", type=int, default=0,
                     help="... after this many frames, then exit")
@@ -110,7 +114,7 @@ def main(argv=None) -> int:
         args.png = None                      # the script decides what to capture
     runtime = shim.Runtime(pyxel, panel, injector, png=args.png,
                            frames=args.frames, stats_every=args.stats_every,
-                           script=script)
+                           script=script, control=args.control)
     runtime.install()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, runtime.request_stop)

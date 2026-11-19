@@ -51,6 +51,8 @@ def _build_map():
 
 
 EVDEV_TO_PYXEL_NAME = _build_map()
+NAME_TO_EVDEV = {name[len("KEY_"):]: code
+                 for code, name in EVDEV_TO_PYXEL_NAME.items()}     # "RETURN" -> 28
 
 
 def find_keyboard():
@@ -80,6 +82,7 @@ class KeyInjector:
         self.filter = None          # optional ``f(code, value) -> bool``: True = consumed
         self._deferred = set()
         self._down_now = set()
+        self._taps = []             # synthetic presses to release on the next poll
         self._unmapped = set()
         self.device = device or find_keyboard()
         self._fd = os.open(self.device, os.O_RDONLY | os.O_NONBLOCK)
@@ -87,6 +90,9 @@ class KeyInjector:
 
     def poll(self):
         """Call at the start of every ``update()``."""
+        for code in self._taps:
+            self._apply(code, 0)
+        self._taps.clear()
         for key in self._deferred:
             self.pyxel.set_btn(key, False)
         self._deferred.clear()
@@ -99,6 +105,13 @@ class KeyInjector:
             _s, _us, typ, code, val = EVENT.unpack_from(data, off)
             if typ == EV_KEY and code != FN_CODE:
                 self._apply(code, val)
+
+    def tap(self, code):
+        """A synthetic key press that behaves like the real keyboard — it goes
+        through the same filter and mapping — and is released on the next poll.
+        Used for remote control and tests."""
+        self._apply(code, 1)
+        self._taps.append(code)
 
     def _apply(self, code, val):
         if self.filter is not None and self.filter(code, val):

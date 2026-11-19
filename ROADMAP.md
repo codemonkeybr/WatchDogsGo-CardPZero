@@ -140,6 +140,13 @@ feedback has been collected and triaged.
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
 
+- **2026-11-18 (map/log split on the panel — 1.2)** — ENTER map ↔ log, scroll
+  (arrows, PgUp/PgDn, Home/End, clamped) and ESC verified on the real panel, driven
+  over SSH through the new `--control` FIFO and read back with `fb-screenshot.py`
+  (GPS on `/dev/ttyS0` already reports a satellite). Found and fixed: the game's
+  CRT scanlines struck through the log text → hidden in the log and menu views.
+  Still to verify with the *physical* keyboard: ENTER/arrows/ESC, and the Home
+  long-press SIGINT. 45 unit tests.
 - **2026-11-18 (320×170 UI — 1.2)** — Real game seen on the panel by the owner
   (illegible at the scaled 640×360 view, as expected); log checked: keyboard,
   GPS on `/dev/ttyS0`, exit path and rail restore all fine. Added

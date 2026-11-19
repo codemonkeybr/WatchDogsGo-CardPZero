@@ -22,6 +22,8 @@ import logging
 import os
 import time
 
+from . import keys as keys_module
+
 log = logging.getLogger("czplatform.shim")
 
 
@@ -38,7 +40,7 @@ def rss_mib():
 
 class Runtime:
     def __init__(self, pyxel, panel, keys=None, png=None, frames=0,
-                 stats_every=5.0, script=None):
+                 stats_every=5.0, script=None, control=None):
         self.pyxel = pyxel
         self.panel = panel
         self.keys = keys
@@ -49,6 +51,10 @@ class Runtime:
         self._script_on = bool(script)
         self._script_wait = 0
         self._script_release = []                  # (frame, key) to let go of
+        self._script_autoquit = True               # False in control mode
+        self._ctl_fd = self._ctl_keep = None
+        if control:
+            self._open_control(control)
         self.stop_requested = False
         self.game = None
         self.frame = 0
@@ -94,6 +100,8 @@ class Runtime:
         def update_wrapper():
             if self.keys is not None:
                 self.keys.poll()
+            if self._ctl_fd is not None:
+                self._read_control()
             if self._script_on:
                 self._step_script()
             if self.stop_requested:
@@ -135,9 +143,14 @@ class Runtime:
                 self._script_wait = max(0, int(arg) - 1)
                 return
             if cmd == "key":
-                key = getattr(px, "KEY_" + arg.strip().upper())
-                px.set_btn(key, True)
-                self._script_release.append((self.frame + 2, key))
+                name = arg.strip().upper()
+                code = keys_module.NAME_TO_EVDEV.get(name)
+                if self.keys is not None and code is not None:
+                    self.keys.tap(code)       # the same path as the real keyboard
+                else:
+                    key = getattr(px, "KEY_" + name)
+                    px.set_btn(key, True)
+                    self._script_release.append((self.frame + 2, key))
                 self._script_wait = 2
                 return
             if cmd == "png":
@@ -149,7 +162,29 @@ class Runtime:
                 self.shutdown("script finished")
             else:
                 raise ValueError(f"unknown script step {cmd!r}")
-        self.shutdown("script finished")
+        if self._script_autoquit:
+            self.shutdown("script finished")
+
+    # -- remote control (dev tool: --control) --------------------------------
+
+    def _open_control(self, path):
+        """A FIFO whose lines are script steps (``key:ENTER,wait:5,png:x.png``):
+        remote control of a running game, e.g. ``echo key:ENTER > FIFO``."""
+        if not os.path.exists(path):
+            os.mkfifo(path)
+        self._ctl_fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        self._ctl_keep = os.open(path, os.O_WRONLY | os.O_NONBLOCK)  # no EOF
+        self._script_autoquit = False
+        log.info("remote control on %s", path)
+
+    def _read_control(self):
+        try:
+            data = os.read(self._ctl_fd, 4096)
+        except BlockingIOError:
+            return
+        for line in data.decode("utf-8", "replace").splitlines():
+            self.script.extend(t for t in line.strip().split(",") if t)
+        self._script_on = True
 
     # -- bookkeeping ---------------------------------------------------------
 
