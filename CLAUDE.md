@@ -33,7 +33,7 @@ CardputerZero App Store (`czdev publish`).
   the owner wants that as a selectable option on CardputerZero. Since it's
   unmerged work, always record the SHA when vendoring and re-check upstream
   `main` for drift before each sync.
-- **Upstream has moved:** `origin/main` is now `72441cb` (v0.10.0), four
+- **Upstream has moved:** `origin/main` is now `8a2cb54` (v0.10.0+), four
   commits past `7427fbf` (portal UA platform detection + new fork rules,
   White Rabbit targets, uConsole detection). The feature branch sits on
   `7427fbf`, so rebase it onto upstream `main` before vendoring (ROADMAP 1.1)
@@ -333,7 +333,8 @@ From read-only probes of the owner's unit (details in
    an RGB565 blit to fb0 (delta 3), no root. The launcher holds fb0 and the
    keyboard node open and is *not* paused while an app runs; how it stays out
    of the way is still unknown. Headless pyxel 3.0.2 already runs on the
-   device (26 MiB peak RSS).
+   device (26 MiB peak RSS), and `tools/fb-blit-test.py` shows a 320×170
+   RGB565 blit to fb0 sustaining 30 fps at ~16% of one core.
 3. **RAM is the tightest resource**: ~353 MiB visible, ~145 MiB free with the
    launcher running, plus a 352 MiB zram swap. Budget the game's RSS early and
    import heavy modules (scapy) lazily.
@@ -351,16 +352,18 @@ From read-only probes of the owner's unit (details in
    `/dev/input/event3` (verify live; decoded by eye so far).
 6. **Internal radio**: no monitor mode (IBSS/managed/AP/P2P only), 2.4 GHz
    only, `iw` present, `hci0` up with BT 5.2 → scan-only source.
-7. **Cap LoRa pins** — derived by crossing M5's Cap-Bus table with the
-   CardputerZero EXT table, and checked with `gpioinfo` while M5's LoRa app
-   ran: SX1262 on SPI0 **CS1** (`/dev/spidev0.1`; the uConsole code uses bus 1
-   CS 0), **RST = G26** (measured as an output), **IRQ/DIO1 = G23**, **BUSY =
-   G22** (both inputs; which is which still rests on the pin-order
-   derivation), I²C on `/dev/i2c-1`; GPS on **`/dev/ttyS0` @ 115200**
-   (G14/G15; console is on `tty1`; NMEA verified, no fix indoors); rail via
-   `ext_5v_out`. The newer Cap LoRa-1262 also has a PI4IOE5V6408 whose P0
-   enables the RF antenna switch — nothing answered at I²C 0x43/0x44, so this
-   unit may be the legacy Cap LoRa868 (to confirm with the owner).
+7. **Cap LoRa pins — confirmed on the device.** Derived by crossing M5's
+   Cap-Bus table with the CardputerZero EXT table, then verified with
+   `tools/lora-pin-probe.py` (RX-only): SX1262 on SPI0 **CS1**
+   (`/dev/spidev0.1`; the uConsole code uses bus 1 CS 0), **RST = G26**,
+   **BUSY = G22**, **DIO1/IRQ = G23**, rail via `ext_5v_out` (group-writable).
+   **The module has a TCXO fed from DIO3** — without
+   `SetDIO3AsTCXOCtrl` the chip reports `XOSC_START` and never enters RX; at
+   1.8 V it works, and upstream's `lora_manager.py` already does
+   `setDio3TcxoCtrl(DIO3_OUTPUT_1_8, 10)`. No PI4IOE5V6408 RF-switch expander
+   answers at I²C 0x43/0x44, consistent with the legacy Cap LoRa868. GPS on
+   **`/dev/ttyS0` @ 115200** (G14/G15; console is on `tty1`; NMEA verified, no
+   fix indoors). Real packet RX/TX is still to be exercised (ROADMAP 2.2).
 8. **Python**: system 3.13.5 already has pyserial, Pillow, dbus, gi,
    cryptography, requests, lgpio, RPi.GPIO, gpiod, spidev, smbus2. Missing:
    pyxel, scapy, bleak, LoRaRF, PyNaCl, netifaces (wheels exist for all but
@@ -378,9 +381,11 @@ feature-parity pass + community feedback (no App Store submission yet).
 
 ## Open questions for the owner
 
-- Confirm the LoRa+GPS module's exact part name/chip once it's visible on
-  the hardware (SX1261 vs SX1262 — public docs for the closest matching
-  M5Stack product say SX1262).
+- (Resolved 2026-11-18) LoRa chip: the owner's Cap is labelled "LORA
+  868-932MHz SX1262" (so not SX1261 as first thought); the chip's version
+  register reads `SX1261 V2D`, but that register can't tell the two apart.
+  Still nice to have: a photo of the Cap, to confirm it is the legacy Cap
+  LoRa868 (no HY2.0/Grove port) rather than the newer LoRa-1262.
 - Is the CardputerZero or CardputerZero-Lite variant in hand (affects
   camera/IMU/bundled-SD assumptions, though none of those matter much to
   this port)?

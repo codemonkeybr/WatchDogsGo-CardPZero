@@ -214,6 +214,15 @@ Bluetooth: `hci0`, bus UART, UP RUNNING, HCI/LMP 5.2, manufacturer Cypress
 `0fe6:9900` (`eth0`, down). No ttyUSB/ttyACM devices present; the RTL-SDR
 kernel module isn't loaded.
 
+**Display write path (measured).** `/dev/fb0` is RGB565 (R5@11 G6@5 B5@0).
+`tools/fb-blit-test.py` — headless pyxel → palette-index buffer →
+`bytes.translate` into low/high byte planes → one `pwrite` of 108,800 bytes —
+sustained **30.0 fps over 6 s**: draw 0.55 ms + convert 2.8 ms + write 0.7 ms
+per frame (worst frame 12 ms), **~16% of one core**, and restoring the saved
+framebuffer afterwards brings the launcher screen back. (The write returns
+quickly because the panel update is deferred to the kernel; the visual result
+was confirmed by the owner.)
+
 **Battery.** `/sys/class/power_supply/bq27220-0` (TI BQ27220): status,
 voltage, current, capacity, temperature, design capacity 1750 mAh — the source
 for the HUD's battery readout.
@@ -256,13 +265,32 @@ shows G26 as an **output** and G22/G23 as inputs, all with consumer
 **115200** baud (multi-constellation NMEA, `GNRMC status=V` / `GNGGA quality=0`
 indoors); 9600 returns nothing.
 
-**Not yet confirmed:** which of G22/G23 is BUSY vs DIO1 (it rests on the
-position argument above), and the RF switch. The Cap LoRa-1262 (not the older
-LoRa868) carries a PI4IOE5V6408 I/O expander on I²C whose **P0 must be driven
-high to enable the RF antenna switch** (`FM8625H`, `SX_ANT_SW`); M5's comparison
-table lists "RF Switch Control: None" for the LoRa868. A read of I²C `0x43` and
-`0x44` on `/dev/i2c-1` returned `EIO` (nothing there), so this unit may be the
-LoRa868 or the expander sits at another address.
+**Confirmed with `tools/lora-pin-probe.py`** (Cap attached, M5's apps closed,
+RX-only, nothing transmitted):
+
+- Reset pulse on G26: **G22 rises 0.09 ms later and falls 3.8 ms after that** —
+  the SX126x start-up BUSY pulse → **G22 = BUSY**.
+- The chip answers on `/dev/spidev0.1`: status = STBY_RC, default LoRa sync
+  word `0x1424`.
+- **TCXO:** with the default config `SetRx` leaves the chip in STBY_RC with
+  device error `XOSC_START` (0x0020) and no IRQ. After
+  `SetDIO3AsTCXOCtrl` at 1.8 V (+ recalibrate) the error clears, the RxTimeout
+  IRQ fires (`GetIrqStatus` = 0x0200) and **G23 rises ~17 ms after `SetRx`**
+  (5 ms BUSY + the 10 ms timeout) and falls ~2 ms after `ClearIrqStatus` →
+  **G23 = DIO1/IRQ**. The module therefore has a TCXO powered from DIO3, and
+  upstream's `lora_manager.py` already calls
+  `setDio3TcxoCtrl(DIO3_OUTPUT_1_8, 10)`.
+- **Chip variant:** the version register (0x0320) reads `SX1261 V2D 2D02`, but
+  Semtech's forum notes that SX1262 parts also report "SX1261" there and that
+  the variant can't be told apart by a register. The owner's Cap is labelled
+  "LORA 868-932MHz SX1262" — go with that; upstream's
+  `setTxPower(22, TX_POWER_SX1262)` is then the right call (mind regional
+  power limits).
+- **RF switch:** the newer Cap LoRa-1262 has a PI4IOE5V6408 I/O expander whose
+  **P0 must be driven high to enable the antenna switch** (`FM8625H`,
+  `SX_ANT_SW`); M5's comparison table lists "RF Switch Control: None" for the
+  LoRa868. Reads of I²C `0x43`/`0x44` on `/dev/i2c-1` returned `EIO` (nothing
+  there), which fits a legacy Cap LoRa868.
 
 ## Sources
 

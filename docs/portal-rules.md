@@ -56,7 +56,7 @@ that talks to `wdgwars.pl`, and keep this page in sync.
 
 ## Upstream drift to account for when vendoring
 
-Our planned base was `7427fbf`. Upstream `main` is now at `72441cb` (v0.10.0),
+Our planned base was `7427fbf`. Upstream `main` is now at `8a2cb54` (v0.10.0+),
 four commits later:
 
 | Commit | Subject |
