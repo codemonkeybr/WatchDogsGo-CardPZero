@@ -352,7 +352,8 @@ From read-only probes of the owner's unit (details in
    tooling, not necessarily to a sideloaded `.deb`).
 5. **Keyboard**: the kernel overlay does the layer translation — the fn layer
    emits real `KEY_UP/DOWN/LEFT/RIGHT`, F-keys, PageUp/PageDown, Home/End on
-   `/dev/input/event3` (verify live; decoded by eye so far).
+   `/dev/input/event3` (**verified live** for LEFT/DOWN/RIGHT with `tools/cz-demo.py`; the `fn` key
+   itself emits code 389, which must be ignored).
 6. **Internal radio**: no monitor mode (IBSS/managed/AP/P2P only), 2.4 GHz
    only, `iw` present, `hci0` up with BT 5.2 → scan-only source.
 7. **Cap LoRa pins — confirmed on the device.** Derived by crossing M5's

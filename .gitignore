@@ -7,4 +7,9 @@ secrets.conf
 
 # raw device probe reports (hostnames, usernames) — summarize in docs instead
 phase0-report*.txt
+dev/
+
+# runtime data the game writes next to its code when run from the repo
+loot/
+maps/
 probe*.txt

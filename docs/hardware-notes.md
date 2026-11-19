@@ -187,8 +187,10 @@ node `/dev/input/event3` (alias `/dev/input/cardputer-zero-internal`, group
 codes `0x43/0x42/0x41`; decoded by eye, the fn keymap yields `KEY_UP(103)`,
 `KEY_DOWN(108)`, `KEY_LEFT(105)`, `KEY_RIGHT(106)`, F1–F12, PageUp(104),
 PageDown(109), Home(102), End(107), Insert(110), Delete(111), PrintScreen(99)
-and media/volume keys — i.e. the kernel does the fn-layer translation. Verify
-with a live capture.
+and media/volume keys — i.e. the kernel does the fn-layer translation. Verified live
+on 2026-11-18 (`tools/cz-demo.py` run from the launcher): `fn+Z/X/C` →
+`KEY_LEFT/DOWN/RIGHT`; the `fn` key itself reports code 389 (down/up); an
+unmapped `fn+G` arrives as a plain `g`; ESC = code 1.
 
 **GPIO / buses.** `gpiochip0` (bcm2835, 54 lines; `gpiochip4` is an alias),
 `gpiochip1` (`gpio-spi-cs`), `gpiochip2` (`m5ioe1`, 14 lines — an I²C IO
