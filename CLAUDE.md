@@ -96,25 +96,35 @@ line-based results back at 115200 baud. `serial_manager.py` talks to it over
 USB-A/USB-C **host**-mode ports with no protocol changes, only needs
 re-verifying that `detect_esp32_port()`'s heuristics still find it.
 
-### "USB port for ADB Scan (Radar)" — **unresolved, needs the owner**
+### SDR: NooElec NESDR SMART (RTL-SDR)
 
-The owner describes the CardputerZero itself as having "uma entrada USB
-para ADB Scan (Radar)". Extensive searching found:
-- An official M5Stack ADB tutorial (`docs.m5stack.com/.../adb`): flip the
-  USB-SW switch left (→ slave mode), enable `Settings → Developer → ADB` in
-  the APP Launcher, connect the **right** USB-C port to a PC, then
-  `adb push`/`adb shell`. This is plain Android Debug Bridge used for file
-  transfer and a shell — nothing about scanning or a radar display.
-- No CardputerZero accessory, Cap module, or app named "Radar" or tied to
-  "ADB Scan" turned up anywhere (M5Stack docs, shop listings, press
-  coverage, the AppBuilder repo).
-- It's possible this refers to: (a) a community/third-party add-on not yet
-  indexed, (b) the owner's own shorthand for *using* ADB-over-USB to drive
-  WatchDogsGo's existing WiFi/BLE "radar" UI from a host PC, or (c) a
-  CardputerZero feature/app not yet covered by public docs.
-- **Action:** confirm with the owner directly once they can describe or
-  photograph it — don't block other phases on this, but don't design
-  around a guess either.
+Corrected by the owner — not "ADB Scan (Radar)", it's a **NooElec NESDR
+SMART**, a standard USB RTL-SDR receiver (RTL2832U + R820T2 tuner family).
+This is good news for the port: upstream **already has a manager for this
+exact device class**, `sdr_manager.py` — it's a pure subprocess wrapper
+around two standard CLI tools, `dump1090` (ADS-B aircraft tracking, built
+from `flightaware/dump1090` per the upstream README) and `rtl_433` (433 MHz
+ISM-band sensor decoding), talking to the dongle through the normal
+`librtlsdr` userspace stack. No GPIO/SPI/special driver involved — it's
+just a USB device.
+
+Porting implications, all low-risk compared to the LoRa/GPS Cap module:
+- Needs `rtl-sdr`/`librtlsdr` + `dump1090` + `rtl_433` to build/install for
+  aarch64 on whatever OS image CardputerZero ships — all three have
+  mainstream aarch64 support already (Debian packages `rtl-sdr`/`rtl-433`;
+  `dump1090` is built from source upstream too, same as on the uConsole).
+- Standard RTL-SDR gotcha, not Cardputer-specific: the kernel's own DVB
+  driver (`dvb_usb_rtl28xxu`) grabs RTL2832U devices by default and has to
+  be blacklisted (or the module unbound) before `librtlsdr` can open the
+  device in userspace — same as on any other Linux box, just needs doing
+  once on the device image.
+- Plug into a CardputerZero USB **host**-mode port (internal hub, same as
+  the ESP32 and any external WiFi adapter); power draw (~250–300 mA) should
+  be within the hub's budget but hasn't been measured on this specific
+  device yet.
+- No pin/GPIO porting work needed at all here, unlike the LoRa/GPS module —
+  this moves to Phase 0/1 as a "plug it in and verify" item, not a design
+  question.
 
 ## Upstream architecture (what we're porting)
 
@@ -259,7 +269,8 @@ they'll bite:
       port with unmodified `serial_manager.py`.
 - [ ] Measure the Cap LoRa-1262 module's real GPIO pin numbers on this
       device (or find them in M5Stack's schematic/source once published).
-- [ ] Clarify the "ADB Scan (Radar)" hardware question with the owner.
+- [ ] Verify the NESDR SMART (RTL-SDR) works through `dump1090`/`rtl_433`
+      on-device, including the `dvb_usb_rtl28xxu` blacklist step.
 
 **Phase 1 — minimal running build (menus + map, no radio hardware):**
 - Vendor the `watchdogs/` package (pinned to a specific upstream commit,
@@ -300,8 +311,6 @@ they'll bite:
 
 - Which upstream ref to vendor from: `main` (`7427fbf`) or
   `feat/aiov2-wifi-bt-fallback` (`cad1e77`)?
-- What exactly is the "USB port for ADB Scan (Radar)" — a specific Cap
-  module/accessory, or shorthand for something else? (see hardware section)
 - Confirm the LoRa+GPS module's exact part name/chip once it's visible on
   the hardware (SX1261 vs SX1262 — public docs for the closest matching
   M5Stack product say SX1262).
