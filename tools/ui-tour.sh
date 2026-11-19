@@ -28,6 +28,8 @@ for tab in sniff attack addons system plugin; do
     STEPS+=",key:RIGHT,wait:10,png:$OUT/0$n-menu-$tab.png"
     n=$((n + 1))
 done
+# the loot database (backtick), both pages
+STEPS+=",key:ESCAPE,wait:10,key:BACKQUOTE,wait:10,png:$OUT/10-loot-1.png,key:RIGHT,wait:8,png:$OUT/11-loot-2.png"
 STEPS+=",quit"
 
 cd "$ROOT"

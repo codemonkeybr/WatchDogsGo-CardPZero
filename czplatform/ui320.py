@@ -304,6 +304,9 @@ def _map_is_idle(self):
 def _update_view(self):
     """Run before the game's own update: ENTER toggles map <-> log."""
     _GAME[0] = self
+    if getattr(self, "loot_screen", False) and _loot_plain(self) and (
+            pyxel.btnp(pyxel.KEY_LEFT) or pyxel.btnp(pyxel.KEY_RIGHT)):
+        self._cz_loot_page = 1 - getattr(self, "_cz_loot_page", 0)
     view = getattr(self, "_cz_view", "map")
     idle = _map_is_idle(self)
     if view == "log" and not idle:
@@ -593,6 +596,163 @@ def draw_boot_screen(self):
     pyxel.rectb(8, A.H - 8, A.W - 16, 3, A.C_DIM)
 
 
+# Loot screen: two pages (LEFT/RIGHT) instead of three columns and two lists.
+# Badge table mirrors upstream's _draw_loot_screen — diff it after a re-sync.
+
+def _loot_badges(A):
+    return [("flipper", "FLIPPER", A.C_WARNING), ("wardriver", "WARDRIVER", A.C_SUCCESS),
+            ("meshcore", "MESHCORE", 2), ("handshake_hunter", "HS HUNTER", A.C_ERROR),
+            ("wpasec_uploader", "WPA-SEC", 12), ("evil_twin", "EVIL TWIN", 8),
+            ("skywatch", "SKYWATCH", A.C_HACK_CYAN), ("iot_hunter", "IOT HUNTER", 12)]
+
+
+def _loot_plain(self):
+    return bool(self.loot_screen and not self._loot_pwd_screen
+                and not self._loot_search_active and not self._loot_search_results)
+
+
+def _kv(label, value, x, y, color, vx):
+    pyxel.text(x, y, label, _app().C_DIM)
+    pyxel.text(x + vx, y, str(value), color)
+
+
+def draw_loot_screen(self):
+    A = _app()
+    pyxel.cls(0)
+    page = getattr(self, "_cz_loot_page", 0)
+    pyxel.rectb(0, 0, A.W, A.H, A.C_HACK_CYAN)
+    pyxel.rect(1, 1, A.W - 2, 11, 1)
+    pyxel.text(4, 3, "LOOT DATABASE", A.C_HACK_CYAN)
+    tag = f"<{page + 1}/2>  [`] close"
+    pyxel.text(A.W - len(tag) * CW - 4, 3, tag, A.C_DIM)
+    pyxel.line(1, 12, A.W - 2, 12, A.C_HACK_CYAN)
+    t = self._loot_totals
+    if page == 0:
+        x, y = 6, 16
+        pyxel.text(x, y, "ALL-TIME TOTALS", A.C_HACK_CYAN)
+        pyxel.line(x, y + 9, x + 90, y + 9, 1)
+        n_contacts = len(self.loot.load_contacts()) if self.loot else 0
+        rows = [("Sessions", t.get("sessions", 0), A.C_TEXT),
+                ("WiFi nets", t.get("wifi", 0), A.C_SUCCESS),
+                ("BT devices", t.get("bt", 0), A.C_HACK_CYAN),
+                ("Handshakes", t.get("pcap", 0), A.C_ERROR),
+                ("HC22000", t.get("hs", 0), A.C_ERROR),
+                ("Passwords", t.get("passwords", 0) + t.get("et_captures", 0), 12),
+                ("MC Nodes", t.get("mc_nodes", 0), A.C_WARNING),
+                ("MC Msgs", t.get("mc_msgs", 0), A.C_WARNING),
+                ("Contacts", n_contacts, A.C_HACK_CYAN),
+                ("GPS points", len(self.loot_points), A.C_TEXT)]
+        for i, (label, value, color) in enumerate(rows):
+            _kv(label, value, x, 28 + i * 9, color, 58)
+
+        x = 164
+        pyxel.text(x, 16, "THIS SESSION", A.C_HACK_CYAN)
+        pyxel.line(x, 25, x + 90, 25, 1)
+        n_hs = sum(1 for m in self.markers if m.type == "handshake")
+        n_pwn = (sum(1 for d in self.ble_devices if d.hacked)
+                 + sum(1 for n in self.wifi_networks if n.hacked))
+        n_pwd = self.state.submitted_forms + len(self.state.evil_twin_captured_data)
+        for i, (label, value, color) in enumerate((
+                ("WiFi", len(self.wifi_networks), A.C_SUCCESS),
+                ("BLE", len(self.ble_devices), A.C_HACK_CYAN),
+                ("Handshakes", n_hs, A.C_ERROR), ("Passwords", n_pwd, 12),
+                ("Hacked", n_pwn, A.C_SUCCESS))):
+            _kv(label, value, x, 28 + i * 9, color, 58)
+        pyxel.text(x, 76, f"LV:{self.level}", A.C_SUCCESS)
+        pyxel.text(x + 36, 76, self.level_title, A.C_HACK_CYAN)
+        nxt, cur = self.xp_for_next_level, self.xp_in_current_level
+        xw = 60
+        pyxel.text(x, 86, "XP", A.C_DIM)
+        pyxel.rect(x + 14, 86, xw, 7, 1)
+        pyxel.rect(x + 14, 86, int(xw * cur / nxt) if nxt > 0 else xw, 7, A.C_HACK_CYAN)
+        pyxel.rectb(x + 14, 86, xw, 7, A.C_COAST)
+        pyxel.text(x + 80, 86, f"{self.xp}", A.C_DIM)
+        hat_name, hat_color = self._get_hat_profile()
+        desc = {"WHITE": "ethical recon", "BLUE": "defensive research",
+                "GREY": "mixed recon & offense", "RED": "active pentesting",
+                "BLACK": "aggressive attacks"}.get(hat_name, "")
+        pyxel.circ(x + 4, 101, 4, 7)
+        pyxel.circ(x + 4, 101, 3, hat_color)
+        pyxel.text(x + 12, 98, f"{hat_name} HAT", hat_color if hat_color != 0 else A.C_TEXT)
+        pyxel.text(x + 12, 107, desc, A.C_DIM)
+
+        bx, by = 4, 124                    # earned badges, wrapped
+        for badge_id, label, color in _loot_badges(A):
+            if badge_id not in self._badges:
+                continue
+            w = len(label) * CW + 5
+            if bx + w > A.W - 3:
+                bx, by = 4, by + 13
+            pyxel.rectb(bx, by, w, 11, color)
+            pyxel.text(bx + 3, by + 2, label, color)
+            bx += w + 3
+    else:
+        x = 4
+        status = []
+        status.append(("ESP32 ", A.C_DIM))
+        status.append(("ONLINE" if self._esp32 else "OFFLINE",
+                       A.C_SUCCESS if self._esp32 else A.C_ERROR))
+        gps = ("FIX", A.C_SUCCESS) if self.gps_fix else (
+            (f"Vis:{self.gps_sats_vis}", A.C_WARNING) if self.gps.available
+            else ("N/A", A.C_ERROR))
+        status += [("  GPS ", A.C_DIM), gps]
+        if self._aio_available:
+            for name, on in (("LoRa", self._lora_enabled), ("SDR", self._sdr_enabled),
+                             ("USB", self._usb_enabled)):
+                status += [(f"  {name} ", A.C_DIM),
+                           ("ON" if on else "OFF", A.C_SUCCESS if on else A.C_ERROR)]
+        for text, color in status:
+            pyxel.text(x, 16, text, color)
+            x += len(text) * CW
+        ops = [n for n, on in (("WiFi", self.wifi_scanning), ("BT", self.ble_scanning),
+                               ("Sniff", self.sniffing), ("HS", self.capturing_hs),
+                               ("EP", self.state.portal_running),
+                               ("ET", self.state.evil_twin_running),
+                               ("GPS wait", self._gps_wait)) if on]
+        pyxel.text(4, 25, "Active ", A.C_DIM)
+        pyxel.text(4 + 7 * CW, 25, " ".join(ops) if ops else "idle",
+                   A.C_HACK_CYAN if ops else A.C_DIM)
+        pyxel.line(4, 35, A.W - 5, 35, 1)
+        mid = A.W // 2
+        pyxel.text(6, 38, "RECENT WiFi", A.C_SUCCESS)
+        pyxel.text(mid + 4, 38, "RECENT BLE", A.C_HACK_CYAN)
+        pyxel.line(4, 47, A.W - 5, 47, 1)
+        pyxel.line(mid, 35, mid, A.H - 20, 1)
+        rows = (A.H - 20 - 50) // 9
+        y = 50
+        for n in reversed(self.wifi_networks[-rows:]):
+            pyxel.text(6, y, (n.ssid[:11] or "?"), A.C_TEXT)
+            pyxel.text(6 + 62, y, f"Ch:{n.channel:>2}", A.C_DIM)
+            pyxel.text(6 + 92, y, f"{n.rssi}dBm", n.color)
+            if n.hacked:
+                pyxel.text(6 + 130, y, "PWN", A.C_SUCCESS)
+            y += 9
+        y = 50
+        for d in reversed(self.ble_devices[-rows:]):
+            pyxel.text(mid + 6, y, (d.name[:10] or "?"), A.C_TEXT)
+            pyxel.text(mid + 6 + 54, y, d.mac[-5:], A.C_DIM)
+            pyxel.text(mid + 6 + 84, y, f"{d.rssi}dBm", d.color)
+            if d.hacked:
+                pyxel.text(mid + 6 + 126, y, "PWN", A.C_SUCCESS)
+            y += 9
+
+    pyxel.line(1, A.H - 17, A.W - 2, A.H - 17, 1)
+    if self.gps_fix:
+        pyxel.text(4, A.H - 12,
+                   f"GPS {abs(self.player_lat):.5f}{'N' if self.player_lat >= 0 else 'S'} "
+                   f"{abs(self.player_lon):.5f}{'E' if self.player_lon >= 0 else 'W'}",
+                   A.C_SUCCESS)
+    else:
+        pyxel.text(4, A.H - 12, "GPS: no fix", A.C_ERROR)
+    hint = ("[<>]page [/]find [D]pwd" if _loot_plain(self) else "[ESC] back")
+    pyxel.text(A.W - len(hint) * CW - 4, A.H - 12, hint, A.C_DIM)
+
+    if self._loot_pwd_screen:
+        self._draw_loot_pwd_viewer()
+    elif self._loot_search_active or self._loot_search_results or self._loot_search:
+        self._draw_loot_search_overlay()
+
+
 def _in_log(game):
     return getattr(game, "_cz_view", "map") == "log"
 
@@ -615,6 +775,7 @@ def install():
     G._draw_menu_hacker = draw_menu_hacker
     G._load_hacker_sprite = load_hacker_sprite
     G._draw_boot_screen = draw_boot_screen
+    G._draw_loot_screen = draw_loot_screen
 
     # the map's toasts overlap the menu hint and the log; the radar is the map's
     G._draw_messages = _hide_when(G._draw_messages,

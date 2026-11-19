@@ -140,6 +140,7 @@ feedback has been collected and triaged.
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
 
+- **2026-11-18 (loot screen — 1.2)** — The three-column loot database overflowed. New `draw_loot_screen` in `ui320.py`: two pages (LEFT/RIGHT; the game doesn't use those keys there) — totals/session/level/hat/badges, and status + recent WiFi/BLE; password viewer and search box fit as is. Open: the search *results* table (column offsets up to x=340) is untested with data and probably overflows. Tour now ends with both loot pages.
 - **2026-11-18 (boot screen — 1.2)** — Owner: the WATCH DOGS logo ran off the panel. Added a compact `_draw_boot_screen` in `ui320.py` (logo in 4×4 cells = 288 px, one-line subtitle, 9 px check rows, bar at the edges); checked frame by frame with `--dry-run --frames N`. Sub-screens still to tour.
 - **2026-11-18 (map/log split on the panel — 1.2)** — ENTER map ↔ log, scroll
   (arrows, PgUp/PgDn, Home/End, clamped) and ESC verified on the real panel, driven

@@ -337,7 +337,7 @@ lines on stderr), `--data-dir`, `--serial`.
   GPIO hazard).
 - **Compact-UI drift**: `ui320.py` replaces whole methods of `WatchDogsGame`
   (`_draw_hud_top`, `_draw_hud_bottom`, `_draw_terminal`, `_draw_menu`,
-  `_draw_menu_hacker`, `_load_hacker_sprite`, `_draw_boot_screen`, plus wrappers on `_draw_messages`, `_draw_radar` and `update`) at
+  `_draw_menu_hacker`, `_load_hacker_sprite`, `_draw_boot_screen`, `_draw_loot_screen`, plus wrappers on `_draw_messages`, `_draw_radar` and `update`) at
   run time. After every upstream sync, diff those methods against upstream — new
   HUD items or menu behaviour won't appear in the 320×170 layout until mirrored —
   and re-run `tools/ui-tour.sh`.
