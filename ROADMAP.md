@@ -140,6 +140,23 @@ feedback has been collected and triaged.
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
 
+- **2026-11-19 (SDR shim confirmed installed; MeshCore nickname/region set for US/Canada)** —
+  Owner confirmed the pending `sudo install` ran; verified on the device:
+  `/usr/local/bin/dump1090` now matches `tools/dump1090-readsb-shim.sh`
+  (md5 `e0e217048e9...`) — the SDR fix from the previous entry is fully
+  deployed. ADS-B Radar/433 MHz Scanner through the game UI itself are still
+  untested (no game process was running at the time). Owner is fine with the
+  MeshCore advert TX from the earlier LoRa incident and asked to switch the
+  regional preset to US/Canada and set a nickname. Updated
+  `~/.watchdogs_meshcore.json` directly on the device (not the repo — it's
+  per-device runtime state, same file `lora_manager.save_meshcore_config()`
+  writes) to `region: "us_ca_narrow"`, `node_name: "t35DogP0"`. Not yet
+  re-verified against the game's own region-picker/nickname-dialog UI code
+  paths (`app.py` `_update_mc_region_picker`/`_mc_region_screen`) — next time
+  the game and `--control` FIFO are up, worth confirming the picker shows
+  "US/Canada Narrow" and the HUD shows the new nickname, and touring the
+  MeshCore Messenger screen at 320×170 (still unreviewed).
+
 - **2026-11-19 (SDR unlock finished; WiFi/BT wardrive + MeshCore tested; 2nd incident: LoRa toggle TXes an advert)** —
   Resumed via a scheduled job after the previous session hit its usage limit.
   **SDR confirmed end-to-end**: owner ran the rebuild (`-Prtlsdr` profile);
