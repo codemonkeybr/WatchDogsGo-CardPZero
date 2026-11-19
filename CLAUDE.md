@@ -255,57 +255,13 @@ they'll bite:
 
 ## Phased plan
 
-**Phase 0 — hardware spike (do this first, before investing in the port):**
-- [ ] Confirm `pyxel`/SDL2 actually renders on-device (or find the real
-      on-device graphics path if not SDL2) and get a trivial 320×170 pyxel
-      window on screen.
-- [ ] Confirm aarch64 wheel/build availability for `pyxel`, `scapy`,
-      `bleak`, `cryptography`, `PyNaCl`, `LoRaRF` on whatever OS image ships.
-- [ ] Confirm which GPIO library actually works against BCM2837 on this
-      image (`python3-rpi-lgpio`, `RPi.GPIO`, `lgpio`, or raw `/dev/gpiochip*`).
-- [ ] Spike the privilege-model question (capabilities vs udev vs helper
-      daemon) with a minimal non-root raw-socket test.
-- [ ] Get the ESP32 projectZero link working over a CardputerZero USB host
-      port with unmodified `serial_manager.py`.
-- [ ] Measure the Cap LoRa-1262 module's real GPIO pin numbers on this
-      device (or find them in M5Stack's schematic/source once published).
-- [ ] Verify the NESDR SMART (RTL-SDR) works through `dump1090`/`rtl_433`
-      on-device, including the `dvb_usb_rtl28xxu` blacklist step.
-
-**Phase 1 — minimal running build (menus + map, no radio hardware):**
-- Vendor the `watchdogs/` package (pinned to a specific upstream commit,
-  recorded in the commit message) as the starting point.
-- Re-layout HUD/menu/terminal/map for 320×170.
-- Remap the keyboard (direct keys + `fn`-layer combos) and verify against
-  the actual pyxel keycodes the device reports.
-- Stub out uConsole/AIO-v2-only subsystems (`aio_manager.py`'s
-  `pinctrl`/`aiov2_ctl` rail toggles) rather than porting them.
-- Validate loot/XP persistence on the microSD-backed home dir.
-
-**Phase 2 — radio hardware integration:**
-- Port `lora_manager.py`/`gps_manager.py` SPI bus/CS and GPIO pin constants
-  to the Cap LoRa-1262+GPS module's real CardputerZero mapping.
-- Re-verify MeshCore decode/encode and sniffer presets unchanged
-  (protocol-level code, should be hardware-agnostic already).
-
-**Phase 3 — package as an installed CardputerZero app:**
-- Resolve the privilege model for real (not a spike) — this gates whether
-  a systemd-service packaging works at all, or whether the app needs to
-  launch as a privileged process some other way the APPLauncher accepts.
-- Build the `.deb` (DEBIAN scripts, `.desktop`, `app-builder.json` with a
-  320×170 screenshot per the manifest's requirement), sideload via
-  `scp` + `dpkg -i`, confirm it shows up and launches from the home screen.
-- **No `czdev publish` / store submission** — sideload-only for now, per
-  the owner's explicit preference to gather community feedback first.
-
-**Phase 4 — feature-parity pass + community feedback:**
-- Flipper Zero USB integration (VID:PID detection, should be unchanged).
-- Decide how WDGWars portal traffic from CardputerZero builds should be
-  tagged/routed (don't silently break the `WatchDogsGo/` UA token
-  classification upstream relies on).
-- Validate an external monitor-mode WiFi adapter end-to-end for
-  Dragon Drain/deauth on CardputerZero's USB host ports.
-- Gather community feedback before any App Store conversation.
+See **[`ROADMAP.md`](ROADMAP.md)** — the living tracking document with
+per-task status checkboxes and a progress log. That file is the source of
+truth for "where are we right now"; update it (not this section) as work
+happens. In short: **Phase 0** hardware spike → **Phase 1** minimal build at
+320×170 with no radio hardware → **Phase 2** LoRa/GPS/SDR/ESP32 integration
+→ **Phase 3** package + sideload as an installed app → **Phase 4**
+feature-parity pass + community feedback (no App Store submission yet).
 
 ## Open questions for the owner
 
