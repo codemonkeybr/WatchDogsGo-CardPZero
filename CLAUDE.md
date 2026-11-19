@@ -30,6 +30,8 @@ scope now: publishing to the CardputerZero AppStore (`czdev publish`).
 | `docs/launcher-guidelines.md` | How APPLaunch and M5's AppBuilder work, and what we adopt. |
 | `docs/ui-adaptation.md` | Proposal for re-budgeting the UI from 640×360 to 320×170. |
 | `docs/portal-rules.md` | Upstream's rules for forks that talk to the WDGWars portal. |
+| `czplatform/` | **Our platform layer** (§5): runs the unmodified vendored game on the CardputerZero — `display.py` (RGB565 → `mmap` fb0), `keys.py` (evdev → `pyxel.set_btn`), `shim.py` (headless pyxel, main loop, SIGINT), `host.py` (**makes the uConsole GPIO code safe**, points LoRa/GPS at the Cap), `__main__.py` (entry point: `python -m czplatform`). |
+| `tests/` | Unit tests for `czplatform` (no hardware needed): `.venv/bin/python -m unittest discover -s tests -v`. They also pass on the device. |
 | `tools/` | Device probes and test programs (§8). |
 | `dev/` (gitignored) | Generated on the device only: wrapper script, `.desktop`, logs. |
 
@@ -42,14 +44,20 @@ screen is ours); keyboard events from evdev, including the fn layer; the Cap's
 LoRa pins and its TCXO requirement; GPS NMEA over `/dev/ttyS0`; the internal
 WiFi/BT characteristics; the packaging model.
 
-**Done in the repo:** game code vendored unmodified; docs; probes/tools.
+**Done in the repo:** game code vendored unmodified; the platform layer
+`czplatform/` (display, keyboard, signals, host safety) with 25 passing unit
+tests; docs; probes/tools. **The real game now runs headless through it** —
+on the dev machine (`--dry-run` renders the boot screen to a PNG) and on the
+device without hardware attached: 30 fps, ≈112–119 MiB RSS, ≈2 s startup, 21–41%
+of one core (ROADMAP 1.7, 0.10).
 
-**Not done yet — be honest about it:** *no part of the real game has run on
-the device or on the dev machine under our control.* Still unexercised on
-hardware: ESP32, NESDR/RTL-SDR, LoRa packets (RX/TX), a GPS fix, WiFi/BLE
-scanning through the internal-radio bridge, raw sockets without root, the
-game's own RAM footprint, SIGINT through the Home long-press. Next up: the
-runtime shim and entry point (ROADMAP 1.7), the 320×170 layout (1.2).
+**Not done yet — be honest about it:** the game has **not yet been seen on the
+real panel with the real keyboard** (the owner launches `wdg-game` from the
+carousel next — one `sudo install`). It still draws its 640×360 canvas, shown
+on the 320×170 panel only through the interim `--view scale|crop` (the real
+re-layout is ROADMAP 1.2). Unexercised on hardware: ESP32, NESDR/RTL-SDR,
+LoRa packets (RX/TX), a GPS fix, WiFi/BLE scanning through the internal-radio
+bridge, raw sockets without root, SIGINT through the Home long-press.
 
 ## 4. Hardware as measured
 
@@ -65,7 +73,7 @@ trust remembered facts — measure.
 | OS | **Debian 13 (trixie)**, Raspberry Pi kernel 6.18.x, Python 3.13, systemd 257 — a stock Pi-class Linux box. NetworkManager + wpa_supplicant + bluetooth + ssh. The login user needs a sudo password; ssh is key-based |
 | Display | 1.9" 320×170 ST7789v3 over SPI via mipi-dbi → **`/dev/fb0`**: 16 bpp **RGB565** (R5@11 G6@5 B5@0), stride 640 B, group `video`. DRM `card1` (`SPI-1`); the vc4 GPU (`card0`) has HDMI only. **No X/Wayland** |
 | Keyboard | TCA8418 matrix (5×10) on I²C 0x34 → **`/dev/input/event3`** (group `input`). The **kernel overlay does the layer translation** (3 keymaps: base, shift/sym, fn); the `fn` key itself emits **code 389** |
-| Launcher | `APPLaunch` — a systemd *user* service (`M5CardputerZero-APPLaunch`, `Restart=always`). It **locks the screen after 30 s of keyboard inactivity** (a full-screen black overlay; the launcher also tries to dim the backlight, but **whether it really switches off on this unit is open**; Settings → Screen → DarkTime, TAB held 3 s locks; wake = any key, then TAB, ENTER) — but **not while an external app runs** (it calls `ui_screensaver_set_foreground(0)` on hand-off). Backlight: `/sys/class/backlight/backlight/brightness`, `root:video rw-rw-r--`, 0–100 |
+| Launcher | `APPLaunch` — a systemd *user* service (`M5CardputerZero-APPLaunch`, `Restart=always`). It **locks the screen after 30 s of keyboard inactivity** (a full-screen black overlay; the launcher also tries to dim the backlight, but **whether it really switches off on this unit is open**; Settings → Screen → DarkTime, TAB held 3 s locks; wake = any key, then TAB, ENTER) — but **not while an external app runs** (it calls `ui_screensaver_set_foreground(0)` on hand-off — owner-verified with the demo left open). Backlight: `/sys/class/backlight/backlight/brightness`, `root:video rw-rw-r--`, 0–100 |
 | USB | host mode via the internal hub; 1× USB-A, 2× USB-C; physical host/slave switch (slave mode is only for M5's ADB) |
 | Expansion | `EXT 2.54-14P` header = the Cap-Bus (not hot-swappable); 5 V rails switched through the `m5ioe1` I²C expander, exposed as LEDs in `/sys/class/leds/` |
 | Power | TI BQ27220 gauge at `/sys/class/power_supply/bq27220-0` (source for the HUD battery) |
@@ -120,6 +128,13 @@ sticker strip reads GNSS / LoRa. Most likely M5's legacy **Cap LoRa868**.
   `rtl-433`, `dump1090` installed and `dvb_usb_rtl28xxu` blacklisted.
 
 ## 5. Runtime design on the device
+
+**Implemented in `czplatform/`, without editing the vendored code.** Before the
+game is constructed, `shim.Runtime.install()` replaces `pyxel.init` (→ headless,
+tells the panel the canvas size), `pyxel.run` (→ wrapped `update`/`draw`),
+`pyxel.fullscreen` and `pyxel.mouse` (→ no-ops); `host.adapt_game()` patches
+the uConsole-specific modules (§6); `__main__` replaces upstream's entry point.
+The diagram below is what it does.
 
 ```
 APPLaunch carousel ──(.desktop, Terminal=false, Exec=wrapper script)──▶ python
@@ -191,10 +206,23 @@ their uConsole workflow). In short:
   inside the functions that need them.
 - **Entry point**: upstream's `watchdogs/__main__.py` runs a `preflight()`
   that calls `setup.sh` (not vendored, uConsole-specific) when anything is
-  missing — **we need our own entry point** (ROADMAP 1.7).
-- **uConsole-only**: `aio_manager.py` (HackerGadgets AIO v2 via `pinctrl` /
-  `aiov2_ctl`) and the SYSTEM-menu GPS/LoRa/SDR/USB rail toggles don't apply
-  here — stub them (1.4); the Cap's rail is `ext_5v_out`.
+  missing — ours is `python -m czplatform` (which also sets up the same
+  logging and serial-port detection).
+- **uConsole GPIO hazard — never run the vendored game on the device without
+  `czplatform`.** `aio_manager.py` (HackerGadgets AIO v2) runs `pinctrl set`
+  on GPIO 27 ("gps"), 23 ("usb"), 7 ("sdr"), 16 ("lora"), and
+  `AioManager.is_installed()` is just `which pinctrl` — true here. On this
+  device GPIO 27 is the **keyboard interrupt**, 23 the **LoRa DIO1** (an input
+  from the chip) and 7 the **LoRa chip-select**; `lora_manager.py` also
+  hard-codes RST/BUSY/IRQ = 25/24/26 on SPI bus 1 (G25/G24 are the display's
+  `dc`/`enable`). `czplatform/host.py` makes `AioManager` a no-op that never
+  spawns `pinctrl` and re-points the LoRa constants at the Cap (SPI0 CS1,
+  RST=G26, BUSY=G22, IRQ=G23); `tests/test_host.py` guards it. The Cap's rail
+  is switched by `host.CapRail` (`ext_5v_out`) instead.
+- **Startup work to know about**: the constructor re-converts the hi-res
+  `hacker.png`/`radio.png` with Pillow on every start (≈1.8 s on the CM0,
+  writes into `assets/`), and imports `cryptography` for the MeshCore identity
+  (ROADMAP 1.9, 1.10).
 - **Keys**: TAB=menu, SPACE(hold)=hack, arrows=pan/navigate, `=`/`]` `-`/`[`
   `0`=zoom, S=stop, ESC=quit, PgUp/PgDn=terminal scroll, backtick=loot, full
   A–Z/0–9 input dialogs; ~45 `pyxel.KEY_*` constants in `app.py`.
@@ -210,7 +238,8 @@ their uConsole workflow). In short:
 | Wardriving source | Internal radio *and* ESP32, selectable | 2.7, 2.8 |
 | Privilege | Non-root by default; open for raw sockets / `iw` scans | 0.4, 3.1 |
 | Portal | Follow upstream's fork rules (UA `Fork/` tag, honest platform, limits, pairing) | `docs/portal-rules.md`, 4.2, 4.5 |
-| **Risk: RAM** | ~145 MiB free; the game's RSS is unmeasured | 0.10 |
+| **Risk: RAM** | ~145 MiB free; the real game measures ≈112–119 MiB RSS (flat over 100 s) — fits, little headroom; hardware managers add some | 0.10 |
+| **Hazard: uConsole GPIO code** | Unadapted AIO v2 code would drive the keyboard IRQ, LoRa DIO1/NSS and display lines — neutralized at runtime in `czplatform/host.py` | 1.4 ✅, `tests/test_host.py` |
 | **Risk: layout effort** | ~40 draw methods with absolute pixel coordinates | 1.2 |
 | **Risk: non-root raw sockets** | scapy features may need capabilities | 0.4 |
 | Upstream drift | Upstream moves fast; delta must stay small | `VENDORED.md` |
@@ -241,6 +270,22 @@ their uConsole workflow). In short:
 | `cz-demo.py` + `make-dev-entry.sh` | launcher-integration demo (draws, logs evdev keys) and the generator of the wrapper + `.desktop` |
 | `fb-screenshot.py` | screenshot of the panel by reading fb0 over SSH. Reads a **single colour when the launcher has locked the screen** (30 s after an app exits or after idle) — press a key on the device and retry |
 
+### Running the game
+
+```bash
+# dev machine: the REAL game, headless, no hardware — saves the panel view and the full canvas
+.venv/bin/python -m czplatform --dry-run --frames 150      # -> czplatform-dryrun.png, czplatform-dryrun-canvas.png
+.venv/bin/python -m unittest discover -s tests -v          # 25 tests, no hardware
+# device: from the carousel — the wrapper dev/wdg-game.sh runs `python -m czplatform --view scale`
+```
+
+`--dry-run` uses a throw-away HOME and data dir, so nothing lands in `~/.watchdogs*`
+or in the repo (`loot/` and `maps/` are gitignored anyway). Dev needs `pyxel`,
+`Pillow`, `pyserial` and `cryptography` in `.venv`. Useful flags: `--view
+scale|crop` (interim 640×360 → 320×170), `--png/--frames` (capture after N
+frames), `--no-fb`, `--no-input`, `--cap-power on|off|auto`, `--verbose` (fps/RSS
+lines on stderr), `--data-dir`, `--serial`.
+
 ### Dev loop on the device
 
 1. Edit on the dev machine, `scp` the files to `~/WatchDogsGo-CardPZero/`.
@@ -257,7 +302,12 @@ their uConsole workflow). In short:
 - **pyxel `chdir`s to the script's folder on init**, and `pyxel.Font` doesn't
   find relative paths: resolve every path **before** `import pyxel`.
 - `pyxel.quit()` exits the process immediately — nothing after `pyxel.run()`
-  executes; print/log/restore *before* calling it.
+  executes (`atexit` handlers *do* run, which is how `CapRail` restores the
+  rail and how a `cProfile` dump works); print/log/restore *before* calling it.
+- The vendored game's `update`/`draw` are bound methods, so `czplatform` finds
+  the game instance with `update.__self__` to call its `_cleanup()`.
+- **Never run the vendored game on the device without `czplatform`** (§6, uConsole
+  GPIO hazard).
 - Default pyxel needs OpenGL → always `headless=True` here.
 - **Never draw on `/dev/fb0` from an SSH shell while the launcher is active**:
   it keeps repainting its own frame and wipes yours. If you must, stop it

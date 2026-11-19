@@ -30,9 +30,29 @@ Icon=share/images/cli_100.png
 Type=Application
 EOF
 
-echo "created $ROOT/dev/wdg-demo.sh and $ROOT/dev/wdg-demo.desktop"
+# The game itself (czplatform runs the vendored WatchDogsGo). Bytecode caching is
+# left on; the game logs to ~/.watchdogs/last_run.log.
+cat >"$ROOT/dev/wdg-game.sh" <<EOF
+#!/bin/sh
+cd "$ROOT"
+exec "$ROOT/.venv/bin/python" -m czplatform --view scale
+EOF
+chmod 0755 "$ROOT/dev/wdg-game.sh"
+
+cat >"$ROOT/dev/wdg-game.desktop" <<EOF
+[Desktop Entry]
+Name=WatchDogsGo (dev)
+Exec=$ROOT/dev/wdg-game.sh
+Terminal=false
+Icon=share/images/cli_100.png
+Type=Application
+EOF
+
+echo "created in $ROOT/dev/: wdg-demo.{sh,desktop} and wdg-game.{sh,desktop}"
 echo
-echo "Register the entry with APPLaunch (needs your sudo password, once):"
-echo "  sudo install -m 0644 $ROOT/dev/wdg-demo.desktop /usr/share/APPLaunch/applications/wdg-demo.desktop"
-echo "Remove it later with:"
-echo "  sudo rm /usr/share/APPLaunch/applications/wdg-demo.desktop"
+echo "Register the entries with APPLaunch (needs your sudo password, once):"
+for n in wdg-demo wdg-game; do
+    echo "  sudo install -m 0644 $ROOT/dev/$n.desktop /usr/share/APPLaunch/applications/$n.desktop"
+done
+echo "Remove them later with:"
+echo "  sudo rm /usr/share/APPLaunch/applications/wdg-demo.desktop /usr/share/APPLaunch/applications/wdg-game.desktop"

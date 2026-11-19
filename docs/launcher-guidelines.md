@@ -58,13 +58,17 @@ From the launcher's own developer notes (`projects/APPLaunch/AGENTS.md`,
   The sysfs `brightness` isn't conclusive — it read 100/100 while the screen was
   black (20:21) and 0 in an earlier probe. A way to settle it later: compare the
   BQ27220 `current_now` (`/sys/class/power_supply/bq27220-0`) awake vs locked.
+  A first sampling (20:26–20:27) was **inconclusive**: sysfs `brightness` read 0
+  in both samples and the battery current was ~598 mA in both — but the device
+  was *charging*, which masks the display's share of the load.
 - **It is switched off while an external app runs:** the launcher calls
   `ui_screensaver_set_foreground(0)` before handing input/timers to the app and
   `ui_screensaver_set_foreground(1)` when it comes back, which *clears* the lock
   and restarts the idle interval. So a `Terminal=false` app of ours is never
   auto-locked — good for a map you watch without touching keys, costly for
   battery. Screen policy during long wardriving sessions is up to us
-  (ROADMAP 1.8).
+  (ROADMAP 1.8). **Verified by the owner (2026-11-18):** with the demo left
+  open the screen never locked; it locked only after the app was closed.
 - **Backlight from the app side:** `/sys/class/backlight/backlight/brightness`
   (0–100) is `root:video rw-rw-r--`, so a non-root app in group `video` can
   dim/blank it. (The launcher's own `cp0_backlight_*` calls are a C ABI for its
