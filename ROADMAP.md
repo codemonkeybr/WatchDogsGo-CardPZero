@@ -140,6 +140,49 @@ feedback has been collected and triaged.
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
 
+- **2026-11-19 (SDR unlock finished; WiFi/BT wardrive + MeshCore tested; 2nd incident: LoRa toggle TXes an advert)** —
+  Resumed via a scheduled job after the previous session hit its usage limit.
+  **SDR confirmed end-to-end**: owner ran the rebuild (`-Prtlsdr` profile);
+  `readsb --help` now lists `ENABLE_RTLSDR`, and a direct invocation decoded
+  **real ADS-B traffic** (ICAO `C00BF7`, callsign `WJA760`, ~7000–10600 ft) —
+  the dongle, demod and decode chain all work. Found the Debian `readsb`
+  build needs two flags the vendored `DUMP1090_CMD` doesn't pass:
+  `--device-type rtlsdr --device 0` (no more auto-detect) and
+  `--net-sbs-port=30003` explicitly (`--net` alone no longer defaults to
+  30003 on this build, unlike legacy dump1090). Updated
+  `tools/dump1090-readsb-shim.sh` to always add them. `rtl_433` confirmed
+  opening the dongle cleanly too (no local 433 MHz sensors in range to
+  decode, which is expected/fine). **Still needed**: one more
+  `sudo install -m 755 tools/dump1090-readsb-shim.sh /usr/local/bin/dump1090`
+  on the device (writing to `/usr/local/bin` needs sudo, which this session
+  can't do itself — ask the owner) — only then does the game's own ADS-B
+  Radar / 433 MHz Scanner menu items pick up the fix; not yet exercised
+  through the game UI.
+  **WiFi/BT Wardrive** (SNIFF 1/2, continuous scan auto-repeat, no deauth):
+  confirmed each correctly shows the "NO GPS FIX — [Y] wait [N] cancel"
+  dialog indoors (no sky view); the loot-tagging path itself (an actual
+  fix) is still untested — needs the owner to take the device outside.
+  **2nd incident — LoRa toggle TXes**: opening the MeshCore Messenger needs
+  LoRa on, so I used the System tab's `[l] LoRa` toggle. I had only checked
+  `start_meshcore()` (confirmed RX-only) before, not its caller —
+  `_toggle_lora()` unconditionally calls `send_meshcore_advert()` right
+  after starting the sniffer, queuing a real MeshCore advert packet for TX
+  regardless of region or whether the SX1262 actually finished initializing
+  (its own "did it work" check reads `self._lora.running`, which
+  `start_sniffer()` sets `True` synchronously before the hardware init even
+  runs on its background thread — so the check can't actually tell success
+  from failure in time, a pre-existing bug in the vendored code, not
+  something to fix there). The on-screen/Python logs give no way to confirm
+  whether the real SX1262 was ready in time to drain the queue and actually
+  transmit — given the Cap's SPI/TCXO path is known-good on this device
+  (ROADMAP 0.x), **treat it as a real TX** on the `eu_uk_narrow` preset
+  (region was never switched this session) until proven otherwise. Turned
+  LoRa back off immediately (`stop()` has no TX path) and did not retry.
+  **Going forward: never toggle `[l] LoRa` (or anything that reaches
+  `_toggle_lora`/`send_meshcore_advert`) without the owner confirming the
+  region/power/antenna setup first** — opening the Messenger screen itself
+  is safe (no TX), only the toggle is the problem. Filed as feedback, same
+  pattern as the deauth incident.
 - **2026-11-18 (live hardware test: ESP32-C5 + SDR; incident + SDR unlock in progress)** —
   Owner plugged in the ESP32-C5 (same one as the uConsole) and the NooElec NESDR
   on two USB ports and asked to test plane radar, WiFi/BT scan, wardriving and
