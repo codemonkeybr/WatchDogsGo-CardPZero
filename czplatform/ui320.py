@@ -536,6 +536,63 @@ def draw_menu_hacker(self):
     pyxel.text(qx + (qw - len(quip) * CW) // 2, qy + (qh - 8) // 2, quip, c)
 
 
+def draw_boot_screen(self):
+    """The start-up check screen: the same logo, glitch and checklist, with the
+    logo in 4x4 cells (288 px wide instead of 432) and tighter rows."""
+    import random
+    A = _app()
+    pyxel.cls(0)
+    frame = self._boot_frame
+    for y in range(0, A.H, 3):
+        pyxel.line(0, y, A.W - 1, y, 1)
+
+    cw, ch = 4, 4
+    word = "WATCH DOGS GO"
+    logo_w = sum(cw * 3 if c == " " else 6 * cw for c in word)
+    x1, y1 = (A.W - logo_w) // 2, 8
+    gx1 = (frame % 5) - 2 if frame % 19 < 3 else 0
+    self._draw_logo_word(word, x1 + 1, y1 + 1, cw, ch, 1)
+    self._draw_logo_word(word, x1, y1, cw, ch, A.C_HACK_CYAN, gx1)
+
+    logo_bottom = y1 + 7 * ch
+    if frame % 11 < 2:
+        gw = random.randint(30, 120)
+        pyxel.rect(random.randint(0, A.W - gw), random.randint(y1, logo_bottom), gw, 1,
+                   random.choice([A.C_HACK_CYAN, A.C_ERROR, 1]))
+    for _ in range(5):
+        pyxel.pset(random.randint(max(0, x1 - 8), min(A.W - 1, x1 + logo_w + 8)),
+                   random.randint(y1 - 4, logo_bottom + 4),
+                   random.choice([A.C_HACK_CYAN, A.C_DIM, 1]))
+
+    sub = "by LOCOSP  -  ESP32-C5 Edition"
+    sub_y = logo_bottom + 6
+    pyxel.text((A.W - len(sub) * CW) // 2, sub_y, sub, A.C_DIM)
+
+    visible = min(len(self._boot_checks), frame // 4 + 1)
+    cx0, cy0 = 8, sub_y + 22
+    max_y = A.H - 18
+    rows = max(1, (max_y - cy0) // 9 + 1)
+    scroll_off = max(0, visible - rows)
+    pyxel.text(cx0, cy0 - 10, "SYSTEM CHECK", A.C_HACK_CYAN)
+    chars = (A.W - 2 * cx0) // CW
+    for i in range(scroll_off, visible):
+        text, color = self._boot_checks[i]
+        if not text:
+            continue
+        y = cy0 + (i - scroll_off) * 9
+        if y > max_y:
+            break
+        text = text[:chars]
+        if i == visible - 1 and frame % 20 < 10:
+            pyxel.text(cx0 + len(text) * CW + 2, y, "_", A.C_HACK_CYAN)
+        pyxel.text(cx0, y, text, color)
+
+    total = len(self._boot_checks)
+    pct = min(visible / total, 1.0) if total else 1.0
+    pyxel.rect(8, A.H - 8, int((A.W - 16) * pct), 3, A.C_HACK_CYAN)
+    pyxel.rectb(8, A.H - 8, A.W - 16, 3, A.C_DIM)
+
+
 def _in_log(game):
     return getattr(game, "_cz_view", "map") == "log"
 
@@ -557,6 +614,7 @@ def install():
     G._draw_menu = draw_menu
     G._draw_menu_hacker = draw_menu_hacker
     G._load_hacker_sprite = load_hacker_sprite
+    G._draw_boot_screen = draw_boot_screen
 
     # the map's toasts overlap the menu hint and the log; the radar is the map's
     G._draw_messages = _hide_when(G._draw_messages,

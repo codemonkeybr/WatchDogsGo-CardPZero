@@ -140,6 +140,7 @@ feedback has been collected and triaged.
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
 
+- **2026-11-18 (boot screen — 1.2)** — Owner: the WATCH DOGS logo ran off the panel. Added a compact `_draw_boot_screen` in `ui320.py` (logo in 4×4 cells = 288 px, one-line subtitle, 9 px check rows, bar at the edges); checked frame by frame with `--dry-run --frames N`. Sub-screens still to tour.
 - **2026-11-18 (map/log split on the panel — 1.2)** — ENTER map ↔ log, scroll
   (arrows, PgUp/PgDn, Home/End, clamped) and ESC verified on the real panel, driven
   over SSH through the new `--control` FIFO and read back with `fb-screenshot.py`
