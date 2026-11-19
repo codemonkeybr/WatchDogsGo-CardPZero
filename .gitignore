@@ -4,3 +4,7 @@ __pycache__/
 *.deb
 secrets.conf
 .DS_Store
+
+# raw device probe reports (hostnames, usernames) — summarize in docs instead
+phase0-report*.txt
+probe*.txt

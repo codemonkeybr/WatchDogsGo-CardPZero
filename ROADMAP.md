@@ -11,45 +11,51 @@ why/architecture/risk context that doesn't change week to week.
 
 ## Phase 0 — Hardware spike
 
-**Status:** ⬜ not started
+**Status:** 🔵 in progress — device reachable over SSH, first two read-only
+probes done (2026-11-18). Raw probe reports are kept out of git (hostnames,
+usernames); the findings are summarized here and in `docs/hardware-notes.md`.
 **Why first:** every later phase assumes answers to these. Cheap to test,
 expensive to assume wrong.
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 0.0 | Get a shell on the device from the dev machine (ADB over the right USB-C in slave mode, or SSH over WiFi), then run `tools/phase0-probe.sh` (read-only inventory) | ⛔ | **Current blocker for every on-device item.** 2026-11-18: `adb devices` was empty and nothing matching in `lsusb`, so the device isn't connected to this machine yet |
-| 0.1 | Get pyxel running at 320×170 **on-device** | 🔵 | Desktop findings: by default pyxel (2.9.9 and 3.0.2 both tested) needs an OpenGL window and panics on SDL's `dummy` driver; `pyxel.init(headless=True)` works with no display/GL and `pyxel.screen.data_ptr()` returns the 320×170 palette-index buffer. Candidate device path: headless pyxel + a small platform shim (evdev keyboard → `pyxel.set_btn`, buffer → RGB565 → the panel's fb/DRM node). Still unknown: which fb/DRM node drives the ST7789v3 panel and whether X/Wayland runs (probe section 2). Test with `tools/pyxel-smoke.py`, on the device with and without `--headless` |
-| 0.2 | Confirm aarch64 availability of the Python deps on the shipped OS image | 🔵 | PyPI check (py3.11 and 3.13, manylinux_2_28 aarch64): wheels exist for `pyxel` 3.0.2, `pyserial`, `Pillow`, `scapy`, `bleak`, `LoRaRF`, `cryptography`, `PyNaCl`, `requests`. **No aarch64 wheel for `netifaces` or `dbus-python`** (sdist only) → use Debian's `python3-netifaces` / `python3-dbus` with a `--system-site-packages` venv, or compile (heavy on 512 MB). Not yet checked on the device itself (needs glibc ≥ 2.28). Upstream pins `pyxel>=2.0.0`, so the device would pull 3.x — the game itself is untested on pyxel 3 |
-| 0.3 | Confirm which GPIO library works against BCM2837 (CM0) on this image — `python3-rpi-lgpio`, `RPi.GPIO`, `lgpio`, or raw `/dev/gpiochip*` | ⬜ | Upstream's `rpi-lgpio` targets Pi5/CM5 (BCM2711/2712), CM0 is BCM2837 — don't assume it works unchanged |
-| 0.4 | Spike the non-root privilege model: minimal raw-socket test under a Linux capability (`cap_net_raw`/`cap_net_admin`) or udev-granted group, no `sudo` | ⬜ | Gates whether Phase 3 packaging is even possible as specified |
-| 0.5 | Get ESP32 (projectZero) talking over a CardputerZero USB host port with **unmodified** `serial_manager.py` | ⬜ | Low risk — plain USB-serial |
-| 0.6 | Verify NooElec NESDR SMART (RTL-SDR) through `dump1090`/`rtl_433`, including the `dvb_usb_rtl28xxu` kernel-module blacklist step | ⬜ | Low risk — plain USB, upstream already has `sdr_manager.py` for this device class |
-| 0.7 | Measure/derive the Cap LoRa-1262 module's real CardputerZero GPIO pin numbers (schematic or continuity-test the Cap-Bus pins against the SoC) | ⬜ | Only the Cardputer-Adv mapping is public; CardputerZero's is a different SoC entirely |
-| 0.8 | Decide which upstream ref to vendor from | ✅ | Decided 2026-11-18: `feat/aiov2-wifi-bt-fallback` @ `cad1e77` (4 commits ahead of `main` `7427fbf`) — it carries the internal-WiFi/BT bridge fallback the owner wants as an option. Unmerged, so record the SHA when vendoring |
-| 0.9 | Probe the **internal** radio: which WiFi/BT chip and driver (`iw phy`, `dmesg \| grep -i brcm`), does `iw dev wlan0 scan` work non-root / under `CAP_NET_ADMIN`, is `hci0` present and does a `bleak` scan return devices, and (optional) is monitor mode available at all | ⬜ | Backs the "internal radio as a scan source" feature; expectation is scan-only (no deauth/handshake) |
+| 0.0 | Shell on the device from the dev machine | ✅ | SSH with key auth works (default path; M5's ADB also exists but isn't needed — it's a stock Debian box). `tools/phase0-probe.sh` is the read-only inventory. Host/user are not recorded in the repo (it will be public) |
+| 0.1 | Get pyxel drawing 320×170 **on-device** | 🔵 | **Measured:** the panel is `/dev/fb0` (`panel-mipi-dbid`, 320×170, 16 bpp RGB565, stride 640 B) plus DRM `card1` (`SPI-1`, 320×170); no Xorg/Xwayland/weston/cage/sway process found; `fb0` is group `video` and the user is a member, so no root. pyxel by default needs an OpenGL window (fails without GL) but `headless=True` works and gives `pyxel.screen.data_ptr()` → plan: headless pyxel + RGB565 blit to fb0. The launcher (`APPLaunch.service`, a systemd *user* service) keeps `/dev/fb0` and `/dev/input/event3` open. **Next:** (a) venv + `tools/pyxel-smoke.py --headless` on the device, (b) fb0 blit test (will scribble over the launcher UI), (c) learn how APPLaunch yields screen/keyboard to a launched app — `preinstalled-desktop-apps.tsv` has a "Sysplause" column that hints at a pause flag |
+| 0.2 | Python deps on the shipped OS | 🔵 | Device: Python 3.13.5, pip 25.1.1, Debian 13. Already installed system-wide: `pyserial` 3.5, `Pillow` 11.1, `dbus-python` 1.4, `gi` 3.50, `cryptography` 43, `requests`, `lgpio`, `RPi.GPIO`, `gpiod` 2.2, `spidev`, `smbus2`. Missing: `pyxel`, `scapy`, `bleak`, `LoRaRF`, `PyNaCl`, `netifaces`. PyPI has aarch64 wheels (py3.13) for all of those except `netifaces` → `apt install python3-netifaces` (needs sudo) or drop it. Use a `--system-site-packages` venv to reuse the apt packages. Upstream pins `pyxel>=2.0.0` so the device pulls 3.x — the game is untested on pyxel 3 |
+| 0.3 | GPIO/SPI library that works on the CM0 | ✅ | `lgpio`, `RPi.GPIO`, `gpiod` and `spidev` all import. Nodes `/dev/gpiochip0/1/2` (`gpiochip4` is an alias of `gpiochip0`, Pi5-style), `/dev/spidev0.1`, `/dev/i2c-*` belong to groups `gpio`/`spi`/`i2c`, and the user is in all three. Not yet exercised against real hardware. `gpiochip2` is `m5ioe1`, an I²C IO expander that switches the 5 V rails |
+| 0.4 | Privilege model | 🔵 | **Measured:** device nodes need no root (groups gpio/spi/i2c/input/video/dialout/netdev/render), and the Cap's 5 V rail (`/sys/class/leds/ext_5v_out/brightness`) is group-writable via a udev rule shipped by M5's LoRa package. Still needs privilege: raw sockets (scapy, `CAP_NET_RAW`), triggering `iw` scans (`CAP_NET_ADMIN`, or NetworkManager over D-Bus via `netdev`). M5's own packages use two patterns: narrow udev rules, or `.desktop` `Exec=/usr/bin/sudo -n -- <bin>` plus a per-binary NOPASSWD `/etc/sudoers.d/<pkg>` shipped in the `.deb` (3 first-party apps). No per-app systemd service exists on the device. `tesso` is a normal sudoer (password). **Next:** raw-socket test once scapy is installed |
+| 0.5 | ESP32 (projectZero) over a USB host port, unmodified `serial_manager.py` | ⬜ | Not plugged in yet. Host mode works: internal 4-port hub (Genesys 05e3:0610) is up with a USB LAN adapter on it; user is in `dialout` |
+| 0.6 | NESDR SMART (RTL-SDR) via `dump1090`/`rtl_433` | ⬜ | Not plugged in yet; `rtl-sdr`, `rtl_433`, `dump1090` aren't installed (apt, needs sudo; `dump1090` is built from source upstream). Blacklist `dvb_usb_rtl28xxu` when it is |
+| 0.7 | Cap LoRa-1262 real pin mapping | 🔵 | M5's own `Cap-LoRa-1262` app (RadioLib) opens `/dev/spidev0.0`, `/dev/spidev0.1`, `/dev/gpiochip0`, `/dev/i2c-1` → SX1262 on **SPI0 (CLK G11, MOSI G10, MISO G9), NSS = CS1/G7 = `/dev/spidev0.1`** (CS0/G8 is the display). GPS app uses **`/dev/ttyS0`** = UART on G14/G15; kernel console is on `tty1`, so the port is free. Cap power = write `1` to `/sys/class/leds/ext_5v_out/brightness`. BUSY / IRQ(DIO1) / RST are three of the only unclaimed EXT GPIOs: **G22, G23, G26** (order unknown). Cleanest way to settle it: with the Cap attached, open M5's LoRa app on the device and read `gpioinfo` over SSH — claimed lines show the consumer. Need to confirm with the owner that the Cap is attached |
+| 0.8 | Which upstream ref to vendor from | ✅ | Decided 2026-11-18: `feat/aiov2-wifi-bt-fallback` (carries the internal-radio bridge fallback). **Revised:** upstream `main` has moved to `72441cb` (v0.10.0), 4 commits past our base `7427fbf`, so rebase the branch onto it first — see 1.1 and `docs/portal-rules.md` |
+| 0.9 | Probe the internal radio | ✅ | **Measured:** `iw` is installed (`/usr/sbin`); `wlan0` managed, **supported modes IBSS / managed / AP / P2P — no monitor**, a single band (2.4 GHz), driver `brcmfmac` (+`brcmfmac_cyw`), firmware BCM43439-class. BT: `hci0` UP on the UART, HCI/LMP **5.2** (CYW4343A2). `wlan0` carries the default route (the SSH session rides on it). Conclusion: scan-only — WiFi wardriving (2.4 GHz) and BLE yes; deauth/handshake/sniffer/Evil Twin/SAE flood no. Remaining (moved into 2.7): `iw scan` without root, and a `bleak` scan |
+| 0.10 | RAM budget (new) | 🔵 | ~353 MiB visible (`gpu_mem=128`, `cma-64`), **~145 MiB available** with launcher and services running, plus 352 MiB zram swap (zstd). Measure the game's RSS early; import `scapy` lazily |
 
-**Exit criteria:** 0.1–0.6 answered with a real yes/no (not an assumption);
-0.7 has at least a working hypothesis to code against; 0.8 decided (done);
-0.9 tells us what the internal radio can and can't do.
+**Exit criteria:** 0.1, 0.2, 0.4 answered on the device (not assumed);
+0.5/0.6 verified with the real peripherals; 0.7 pins confirmed; 0.10 has a
+first RSS measurement.
 
 ---
 
 ## Phase 1 — Minimal running build (menus + map, no radio hardware)
 
-**Status:** ⬜ not started — blocked on Phase 0.1–0.4
+**Status:** ⬜ not started — blocked on 0.1 (pyxel on the device) and the
+vendoring rebase
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1.1 | Vendor `watchdogs/` package from the chosen upstream ref, commit records the exact source SHA | ⬜ | |
-| 1.2 | Re-layout HUD/menu/terminal/map constants for 320×170 | ⬜ | Not a linear scale — 640/320=2.0 but 360/170≈2.12, aspect ratio differs (16:9 vs ~1.88:1); panels likely need to become toggle/overlay instead of always-on given less vertical room |
-| 1.3 | Remap keyboard bindings to the Cardputer Zero's direct keys + `fn`-layer combos, verified against actual pyxel keycodes on-device | ⬜ | See `docs/hardware-notes.md` fn-layer table; docs are internally inconsistent about PgUp/PgDn, don't trust blindly |
-| 1.4 | Stub out `aio_manager.py`'s `pinctrl`/`aiov2_ctl` rail toggles (uConsole/AIO-v2-only, doesn't apply here) | ⬜ | |
-| 1.5 | Validate loot/XP persistence (`loot/loot_db.json`, `~/.watchdogs*`) on the microSD-backed home dir | ⬜ | |
-| 1.6 | Game runs end-to-end with zero radio hardware attached (menus, map, terminal, plugins) | ⬜ | Upstream's fail-closed manager pattern should make this straightforward once 1.1–1.3 land |
+| 1.1 | Rebase `feat/aiov2-wifi-bt-fallback` onto upstream `main` (`72441cb`, v0.10.0) in the owner's fork, then vendor `watchdogs/` from it; the vendoring commit records the exact source SHA | ⬜ | Upstream changed the portal client (UA platform detection, rabbits/game-state) — see `docs/portal-rules.md`. Keep the upstream `LICENSE` (MIT, © LOCOSP) with the vendored code |
+| 1.2 | Re-layout HUD/menu/terminal/map for 320×170 | ⬜ | Proposal in `docs/ui-adaptation.md`; can be developed and reviewed entirely off-device with headless pyxel |
+| 1.3 | Remap keyboard bindings | ⬜ | **Measured:** the keyboard is a TCA8418 (I²C 0x34, 5×10 matrix) on `/dev/input/event3` (alias `/dev/input/cardputer-zero-internal`, group `input`), and the kernel overlay defines three keymaps (base, shift/sym, fn). Decoded by eye from the overlay, the fn layer emits real `KEY_UP/DOWN/LEFT/RIGHT`, F1–F12, PageUp/PageDown, Home/End, Insert/Delete and media keys — so no raw-matrix handling is needed. Verify with a live capture (`evtest` isn't installed; python `evdev` or `cat` works) |
+| 1.4 | Stub out `aio_manager.py`'s `pinctrl`/`aiov2_ctl` rail toggles (uConsole/AIO-v2-only) | ⬜ | The Cap's 5 V rail is `/sys/class/leds/ext_5v_out` here — a candidate replacement for the "GPS/LoRa power" toggles |
+| 1.5 | Validate loot/XP persistence on the microSD-backed home dir | ⬜ | |
+| 1.6 | Game runs end-to-end with zero radio hardware attached | ⬜ | Upstream's fail-closed manager pattern should make this straightforward once 1.1–1.3 land |
+| 1.7 | Headless-pyxel platform shim: evdev → `pyxel.set_btn`, buffer → RGB565 → `/dev/fb0`, plus the launcher handover | ⬜ | Depends on the 0.1 on-device results |
 
 **Exit criteria:** the game launches, renders correctly at 320×170, is
-navigable with the Cardputer Zero's own keyboard, and persists state across
-restarts — all with no ESP32/LoRa/GPS/SDR plugged in.
+navigable with the CardputerZero's own keyboard, persists state across
+restarts, and stays within the RAM budget — all with no ESP32/LoRa/GPS/SDR
+plugged in.
 
 ---
 
@@ -59,14 +65,14 @@ restarts — all with no ESP32/LoRa/GPS/SDR plugged in.
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 2.1 | Wire up ESP32 projectZero link for real (WiFi/BLE scan, deauth, handshake capture, Evil Twin, BLE HID) | ⬜ | |
-| 2.2 | Port `lora_manager.py` SPI bus/CS + GPIO (RST/BUSY/IRQ) constants to the real CardputerZero pin mapping from 0.7 | ⬜ | |
-| 2.3 | Port `gps_manager.py` to the Cap module's GPS UART device path | ⬜ | Already generic via pyserial — mostly a device-path change |
-| 2.4 | Re-verify MeshCore decode/encode + sniffer presets unchanged (protocol-level, should be hardware-agnostic) | ⬜ | |
-| 2.5 | Wire up NESDR SMART for ADS-B (`dump1090`) and 433 MHz (`rtl_433`) for real, in-game | ⬜ | |
-| 2.6 | Validate an external monitor-mode USB WiFi adapter (Alfa AWUS036ACH/ACM) for Dragon Drain/deauth — CardputerZero's onboard WiFi has no monitor-mode claim | ⬜ | Same requirement as uConsole, just now mandatory rather than optional |
-| 2.7 | Run the upstream `wdg_wifi_bridge.py` against the internal `wlan0`/`hci0` (scan-only, no monitor mode) and confirm WiFi + BLE wardriving works through the unchanged serial protocol | ⬜ | Depends on 0.9; may need `--iface`/`--bt-iface` and path tweaks, and the bridge itself needs the same privilege decision as the game |
-| 2.8 | Add an explicit scan-source setting (`auto` \| `esp32` \| `internal`) — env/`secrets.conf` + SYSTEM-menu entry — replacing the implicit "ESP32 if present, else bridge" fallback | ⬜ | Keep upstream identifiers; change only user-visible "AIO v2" strings. Using both sources at once is out of scope for now |
+| 2.1 | Wire up the ESP32 projectZero link for real (WiFi/BLE scan, deauth, handshake capture, Evil Twin, BLE HID) | ⬜ | |
+| 2.2 | Port `lora_manager.py` to the CardputerZero mapping: **SPI bus 0, CS 1** (uConsole code uses bus 1, CS 0), RST/BUSY/IRQ from 0.7, Cap power via the `ext_5v_out` LED | ⬜ | The decode/encode layer should need no change |
+| 2.3 | Point `gps_manager.py` at `/dev/ttyS0` (115200 8N1 per the module docs) | ⬜ | Default in `config.py` is the uConsole's `/dev/ttyAMA0`; set `WDG_GPS_DEVICE` or change the default. Power the rail first |
+| 2.4 | Re-verify MeshCore decode/encode + sniffer presets unchanged | ⬜ | Protocol-level, should be hardware-agnostic |
+| 2.5 | NESDR SMART for ADS-B (`dump1090`) and 433 MHz (`rtl_433`) in-game | ⬜ | |
+| 2.6 | Validate an external monitor-mode USB WiFi adapter (Alfa AWUS036ACH/ACM) for Dragon Drain/deauth | ⬜ | Now confirmed mandatory: the internal radio has no monitor mode (0.9) |
+| 2.7 | Run `wdg_wifi_bridge.py` against the internal `wlan0`/`hci0` (scan-only, no monitor mode) and confirm WiFi + BLE wardriving through the unchanged serial protocol | ⬜ | `iw` and `hci0` are present. Needs `bleak` installed, a privilege answer for `iw scan`, and SSID comma-quoting checked in the bridge's CSV output |
+| 2.8 | Explicit scan-source setting (`auto` \| `esp32` \| `internal`) — env/`secrets.conf` + SYSTEM-menu entry — replacing "ESP32 if present, else bridge" | ⬜ | Keep upstream identifiers; change only user-visible "AIO v2" strings. Using both sources at once is out of scope for now |
 
 **Exit criteria:** WiFi/BLE scanning, LoRa/MeshCore, GPS fix, ADS-B, and 433
 MHz decoding all work from in-game menus with the real hardware attached.
@@ -75,17 +81,17 @@ MHz decoding all work from in-game menus with the real hardware attached.
 
 ## Phase 3 — Package as an installed CardputerZero app
 
-**Status:** ⬜ not started — blocked on Phase 0.4's privilege-model answer
+**Status:** ⬜ not started — blocked on the 0.4 privilege answer and 0.1
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 3.1 | Resolve the privilege model for real (capabilities / udev rules / helper daemon) — not a spike, the shipped design | ⬜ | Gates whether a systemd-service package works at all |
-| 3.2 | Build the `.deb`: `DEBIAN/{control,postinst,prerm}`, systemd unit, `.desktop` under `usr/share/APPLaunch/applications/`, `app-builder.json` manifest (needs a 320×170 screenshot) | ⬜ | Reuse the AppBuilder packaging *shape*, not its LVGL/CMake build step — this project is Python/pyxel |
-| 3.3 | Sideload via `scp` + `sudo dpkg -i`, confirm it appears on and launches from the home screen | ⬜ | No `czdev publish` / store submission — explicitly out of scope right now |
-| 3.4 | Write a short install doc for community testers (parallel to upstream's `curl \| sudo bash` quick-install, adapted for sideload) | ⬜ | |
+| 3.1 | Settle the privilege design | ⬜ | Options now concrete: (a) non-root using group access + udev rules (+ capabilities for raw sockets), or (b) M5's own pattern — `.desktop` `Exec=/usr/bin/sudo -n -- <wrapper>` with a per-binary NOPASSWD sudoers drop-in. If (b): the wrapper and the code it runs must be root-owned and not user-writable, and the sudoers entry must allow no arguments |
+| 3.2 | Build the `.deb` following the layout of the *installed* first-party apps | ⬜ | `usr/share/APPLaunch/applications/<name>.desktop` (`Terminal=false`), `usr/share/APPLaunch/share/images/<icon>.png`, app files under `usr/share/<App>/…` (or `usr/share/APPLaunch/bin`), optional `usr/lib/udev/rules.d/*.rules` and `etc/sudoers.d/<pkg>` (mode 0440), license docs. No per-app systemd service on the device, so AppBuilder's service model isn't needed. `app-builder.json` only matters for the store |
+| 3.3 | Sideload (`scp` + `sudo dpkg -i` or `apt install ./x.deb`) and confirm it appears on and launches from the home screen | ⬜ | Needs the owner's sudo password. No `czdev publish` / store submission |
+| 3.4 | Short install doc for community testers | ⬜ | Adapted from upstream's quick-install |
 
-**Exit criteria:** a `.deb` that a tester can `scp`+`dpkg -i` onto their own
-CardputerZero and launch from the home screen like any other installed app.
+**Exit criteria:** a `.deb` that a tester can install on their own
+CardputerZero and launch from the home screen like any other app.
 
 ---
 
@@ -96,12 +102,31 @@ CardputerZero and launch from the home screen like any other installed app.
 | # | Task | Status | Notes |
 |---|------|--------|-------|
 | 4.1 | Flipper Zero USB integration (VID:PID detection) | ⬜ | Should be unchanged from upstream |
-| 4.2 | Decide how CardputerZero-build WDGWars portal traffic is tagged/routed | ⬜ | Don't silently break the `WatchDogsGo/` User-Agent token classification upstream relies on — coordinate before shipping |
-| 4.3 | Share the sideload build with the WatchDogsGo community, collect feedback | ⬜ | Explicit owner goal — do this *before* any App Store conversation |
-| 4.4 | Triage feedback into a follow-up list (bugs vs. "won't fit this hardware" vs. "worth a store listing later") | ⬜ | |
+| 4.2 | Make the portal client conform to upstream's fork rules | ⬜ | See `docs/portal-rules.md`: `Fork/CardputerZero-<ver>` UA tag, honest platform string, rate limits + `Retry-After`, no double uploads |
+| 4.3 | Share the sideload build with the WatchDogsGo community, collect feedback | ⬜ | Explicit owner goal — before any App Store conversation |
+| 4.4 | Triage feedback (bugs vs. "won't fit this hardware" vs. "worth a store listing later") | ⬜ | |
+| 4.5 | Screen for `/api/device-pair` code pairing | ⬜ | A 64-char key on a 46-key keyboard is painful; upstream's pairing exists at the API level but has no UI yet |
+| 4.6 | Consider the Cap CC1101 modules | ⬜ | M5 ships NFC and Sub-GHz-chat apps for them, so they exist for this device; possible Flipper-style features later |
 
-**Exit criteria:** community has a build they can actually install and
-play, and feedback has been collected and triaged.
+**Exit criteria:** community has a build they can install and play, and
+feedback has been collected and triaged.
+
+---
+
+## Before publishing the repo on GitHub
+
+- [ ] `LICENSE`: upstream is MIT (© LOCOSP). Keep that notice with any vendored
+      code and choose the license for new code (MIT keeps it simple).
+- [ ] Credit upstream `LOCOSP/WatchDogsGo` and the community contributors
+      (e.g. the bridge's authors) in the README.
+- [ ] Scrub local absolute paths (`/home/...`) and anything device-specific
+      (host, IP, username) from the docs — `git grep` before the first push.
+- [ ] Portal rules satisfied (`docs/portal-rules.md`).
+- [ ] Community README: sideload install steps, 320×170 screenshots.
+- [ ] Commits authored with the owner's configured git identity; default
+      branch `main`.
+- [ ] `secrets.conf` and raw probe reports stay untracked (already in
+      `.gitignore`).
 
 ---
 
@@ -110,22 +135,26 @@ play, and feedback has been collected and triaged.
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
 
+- **2026-11-18 (device measured)** — Owner gave SSH access (reserved IP);
+  noted privately, not in the repo. Ran the read-only probe twice. Big
+  findings: stock Debian 13 on a Pi CM0 (SSH, not ADB); display is a plain
+  `/dev/fb0` 320×170 RGB565 with no X/Wayland (headless pyxel + fb blit is
+  viable and needs no root); RAM is the tight resource (~145 MiB free);
+  internal WiFi has **no monitor mode** (scan-only, 2.4 GHz) while `hci0`
+  works (BT 5.2); non-root access to GPIO/SPI/I²C/input/fb works through
+  group membership; M5's packaging precedent is `.desktop` + sudoers/udev, not
+  per-app services; Cap LoRa on SPI0 CS1 with GPS on `/dev/ttyS0`, BUSY/IRQ/RST
+  ∈ {G22, G23, G26}. Upstream `main` moved to v0.10.0 and added fork rules for
+  the portal → `docs/portal-rules.md`, and the vendoring base must be rebased
+  (1.1). Added "before publishing" checklist; git default branch → `main`.
 - **2026-11-18 (Phase 0 started)** — Decided to vendor from
-  `feat/aiov2-wifi-bt-fallback` (the internal-radio bridge fallback lives
-  there); added 0.9 and 2.7/2.8 for the internal radio as a selectable scan
-  source. Desktop-side results: aarch64 wheels exist for every dependency
-  except `netifaces`/`dbus-python`; pyxel needs OpenGL unless
-  `headless=True`, which works and exposes the frame buffer — this shapes
-  the on-device rendering plan (0.1). Wrote `tools/phase0-probe.sh`
-  (read-only device inventory) and `tools/pyxel-smoke.py`. **Blocked on
-  device access (0.0):** not visible via adb/lsusb from this machine, so all
-  on-device spikes (0.1, 0.3–0.7, 0.9) wait on it. Also wrote
-  `docs/ui-adaptation.md` (proposal for the 320×170 re-layout).
+  `feat/aiov2-wifi-bt-fallback` (internal-radio bridge fallback); added 0.9
+  and 2.7/2.8. Desktop-side: aarch64 wheels exist for every dependency except
+  `netifaces`/`dbus-python`; pyxel needs OpenGL unless `headless=True`, which
+  works and exposes the frame buffer. Wrote `tools/phase0-probe.sh`,
+  `tools/pyxel-smoke.py`, `docs/ui-adaptation.md`.
 - **2026-11-18** — Repo created. `CLAUDE.md` and `docs/hardware-notes.md`
   written (device/expansion-board specs, upstream architecture, platform
   risk list). Corrected an early misread: the "ADB Scan (Radar)" USB
-  peripheral is actually a NooElec NESDR SMART (RTL-SDR) — downgraded from
-  an open question to a Phase 0/1 verify-only item, since upstream already
-  has `sdr_manager.py` for that device class. This `ROADMAP.md` created to
-  track phase-by-phase status going forward. No code ported yet — still
-  entirely in Phase 0.
+  peripheral is actually a NooElec NESDR SMART (RTL-SDR). `ROADMAP.md`
+  created to track phase-by-phase status.

@@ -16,6 +16,10 @@
 # Privacy: MAC addresses are masked, the CPU serial is dropped, and nearby
 # networks are only counted, never listed — reasonably safe to share.
 
+# Non-login shells (ssh/adb) often lack the sbin dirs, where Debian puts iw,
+# rfkill, swapon, ldconfig, tcpdump, wpa_cli... — don't report those missing.
+export PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin"
+
 OUT="${1:-./phase0-report.txt}"
 : >"$OUT" 2>/dev/null || { echo "cannot write $OUT" >&2; exit 1; }
 

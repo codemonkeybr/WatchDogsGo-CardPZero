@@ -33,6 +33,11 @@ CardputerZero App Store (`czdev publish`).
   the owner wants that as a selectable option on CardputerZero. Since it's
   unmerged work, always record the SHA when vendoring and re-check upstream
   `main` for drift before each sync.
+- **Upstream has moved:** `origin/main` is now `72441cb` (v0.10.0), four
+  commits past `7427fbf` (portal UA platform detection + new fork rules,
+  White Rabbit targets, uConsole detection). The feature branch sits on
+  `7427fbf`, so rebase it onto upstream `main` before vendoring (ROADMAP 1.1)
+  and read `docs/portal-rules.md`.
 - This repo does not vendor that code yet. When it does, record the exact
   source commit hash in the commit that adds it, so drift from upstream stays
   traceable.
@@ -57,10 +62,10 @@ unverified until checked against the hardware in hand.
 | Audio | ES8389 codec, MEMS mic, 1W/8Ω speaker, 3.5mm TRRS jack |
 | IR | TX + RX |
 | Battery | 3.7V 1750mAh Li-ion, BQ27220YZFR gauge, charges via USB-C2 (5V/2A) even when off |
-| Wireless | WiFi 2.4GHz 802.11 b/g/n only (no 5GHz, no monitor-mode claim found); BT listed as 4.2 in most sources, disputed as possibly 5.0; 10/100M Ethernet via USB (SR9900A chip) |
-| USB | 1× USB-A 2.0, 2× USB-C 2.0; **physical host/slave switch** on the left side. Host mode routes the CM0 through an internal GL852G hub → left USB-A, left USB-C, and Ethernet all become available. Slave mode instead connects the CM0 directly to the right USB-C port only (used for ADB, ADB = Android Debug Bridge terminology, even though this is a Linux device) |
+| Wireless | WiFi 2.4GHz 802.11 b/g/n only (no 5GHz, no monitor-mode claim found); BT 5.2 as reported by the device itself (`hciconfig`, CYW4343A2; docs and press say 4.2); 10/100M Ethernet via USB (SR9900A chip) |
+| USB | 1× USB-A 2.0, 2× USB-C 2.0; **physical host/slave switch** on the left side. Host mode routes the CM0 through an internal GL852G hub → left USB-A, left USB-C, and Ethernet all become available. Slave mode instead connects the CM0 directly to the right USB-C port only (M5's docs use that port for ADB; we use SSH instead, so slave mode isn't needed for development) |
 | Expansion | `EXT 2.54-14P` header (SPI0, UART, I2C1, USB4, GPIO — full pinout in `docs/hardware-notes.md`) **and** a separate Cap-Bus expansion slot for "Cap" modules. **Cap modules are not hot-swappable** — power off before inserting/removing one |
-| OS | Linux, aarch64. Flashed to microSD via M5Stack's Image Flashing Guide. No specific distro named in the docs; third-party coverage assumes a customized Raspberry Pi OS-like image |
+| OS | **Measured:** Debian 13 (trixie) on the Raspberry Pi kernel (6.18.x `+rpt`), aarch64, Python 3.13 — a stock Pi-class Linux box, reachable over plain SSH. Flashed to microSD via M5Stack's Image Flashing Guide |
 | App ecosystem | CardputerZero-AppBuilder / `czdev` CLI → apps ship as `.deb` (systemd service + `.desktop` under `usr/share/APPLaunch/`), discovered by the APPLauncher home screen. Store front-end at cardputer.cc. Example app runtimes: C+LVGL, SDL2, Qt, Python, Rust |
 
 ### Expansion: LoRa + GPS Cap module
@@ -125,20 +130,21 @@ mechanism, which is why we vendor from the feature branch:
   fork, change only user-visible strings (to "internal WiFi/BT") and keep
   identifiers as-is where possible, to keep merges from upstream cheap.
 
-Expected capability split (reasoned from the radio specs, **not yet verified
-on the device** — see ROADMAP 0.9):
+Capability split (WiFi side **measured on the device, 2026-11-18**; the
+BLE/scan path itself still has to be exercised — see ROADMAP 0.9 and 2.7):
 
 | | Internal radio (managed-mode `iw scan` + BlueZ) | ESP32 (projectZero) |
 |---|---|---|
 | WiFi wardriving | yes, **2.4 GHz only** | yes; dual-band if the board is the ESP32-C5 upstream targets |
 | BLE wardriving, AirTag scan, BT tracker | yes (BT 4.2-class: legacy advertising only) | yes |
-| Deauth, handshake capture, sniffer, Evil Twin, SAE flood | **not expected** — needs monitor mode/injection, which stock drivers for this chip class are not expected to offer | yes |
+| Deauth, handshake capture, sniffer, Evil Twin, SAE flood | **no** — needs monitor mode/injection, and the driver's supported modes are IBSS, managed, AP and P2P only | yes |
 
 Practical caveats: `wlan0` is probably also the device's only uplink
 (WDGWars upload, map tiles, ssh), so scanning while associated may briefly
 hurt throughput; triggering an `iw` scan normally needs `CAP_NET_ADMIN`
 (reading cached results does not), which feeds into the privilege-model
-decision below; `hci0` naming and BT-UART bring-up on the CM0 are unverified.
+decision below. Measured: `wlan0` is indeed the default-route interface
+(this very SSH session rides on it), and `hci0` is up (BT UART, HCI 5.2).
 
 ### SDR: NooElec NESDR SMART (RTL-SDR)
 
@@ -207,9 +213,9 @@ Summarized from `/home/tesso/dev/WatchDogsGo/CLAUDE.md` and direct reading of
   gets `on_load/on_unload/on_update/draw` lifecycle hooks and a PLUGINS tab
   entry. `plugins/wardrive_upload.py` is the WDGWars portal client — HMAC
   signed, routes/ranks traffic by matching the `WatchDogsGo/` User-Agent
-  product token. **Don't rename that token** in anything derived from this
-  fork without separately arranging it with the wdgwars.pl admin, or
-  CardputerZero traffic silently stops being recognized upstream.
+  product token. Upstream publishes rules every fork must follow (UA format
+  plus a `Fork/<name>` tag, honest platform string, rate limits, key
+  handling) — see `docs/portal-rules.md` before touching this plugin.
 - **Keybindings** (full table in upstream README): TAB=menu, SPACE(hold)=hack,
   arrows=pan/navigate, `=`/`]` `-`/`[` `0`=zoom, S=stop, ESC=quit,
   PgUp/PgDn=scroll terminal (`Fn+U`/`Fn+K` on the uConsole keyboard),
@@ -229,7 +235,9 @@ Summarized from `/home/tesso/dev/WatchDogsGo/CLAUDE.md` and direct reading of
 ## Key platform deltas (uConsole/CM4 → CardputerZero/CM0)
 
 These are the things that actually have to change, roughly in the order
-they'll bite:
+they'll bite. (Several were refined by on-device measurements — see
+"Measured on the device" after this list; where they disagree, that section
+wins.)
 
 1. **Privilege model — biggest open risk.** Upstream runs the whole game as
    root via `sudo`. CardputerZero's own app-packaging docs state apps "must
@@ -313,6 +321,44 @@ they'll bite:
    stated goal**: `scp *.deb` to the device + `sudo dpkg -i`, no
    `czdev publish`/store listing.
 
+## Measured on the device (2026-11-18)
+
+From read-only probes of the owner's unit (details in
+`docs/hardware-notes.md`, task status in `ROADMAP.md`).
+
+1. **It's a stock Debian 13 / Raspberry Pi kernel box.** SSH is the way in;
+   M5's ADB exists but isn't needed.
+2. **Display = `/dev/fb0`**: 320×170, RGB565, an SPI panel driven through
+   mipi-dbi (DRM `card1`), group `video`, no X/Wayland. So: headless pyxel +
+   an RGB565 blit to fb0 (delta 3), no root. The launcher holds fb0 and the
+   keyboard node open; how it yields them to a launched app is still unknown.
+3. **RAM is the tightest resource**: ~353 MiB visible, ~145 MiB free with the
+   launcher running, plus a 352 MiB zram swap. Budget the game's RSS early and
+   import heavy modules (scapy) lazily.
+4. **Non-root is largely feasible.** Group membership (gpio, spi, i2c, input,
+   video, dialout, netdev) covers every device node, and the Cap's 5 V rail
+   (`/sys/class/leds/ext_5v_out`) is group-writable. Only raw sockets and
+   privileged WiFi operations need more. M5's own apps use narrow udev rules,
+   or `.desktop` `Exec=/usr/bin/sudo -n -- <bin>` with a per-binary NOPASSWD
+   sudoers drop-in shipped in the `.deb`; there is **no per-app systemd
+   service** on the device, so AppBuilder's service model isn't what installed
+   apps do (delta 1's "root services are rejected" applies to that store
+   tooling, not necessarily to a sideloaded `.deb`).
+5. **Keyboard**: the kernel overlay does the layer translation — the fn layer
+   emits real `KEY_UP/DOWN/LEFT/RIGHT`, F-keys, PageUp/PageDown, Home/End on
+   `/dev/input/event3` (verify live; decoded by eye so far).
+6. **Internal radio**: no monitor mode (IBSS/managed/AP/P2P only), 2.4 GHz
+   only, `iw` present, `hci0` up with BT 5.2 → scan-only source.
+7. **Cap LoRa-1262**: SX1262 on SPI0 **CS1** (`/dev/spidev0.1`; the uConsole
+   code uses bus 1 CS 0), GPS on **`/dev/ttyS0`** (G14/G15; console is on
+   `tty1`, so it's free), rail via `ext_5v_out`; BUSY/IRQ/RST are G22, G23,
+   G26 in some order — read it from M5's own LoRa app with `gpioinfo` while it
+   runs.
+8. **Python**: system 3.13.5 already has pyserial, Pillow, dbus, gi,
+   cryptography, requests, lgpio, RPi.GPIO, gpiod, spidev, smbus2. Missing:
+   pyxel, scapy, bleak, LoRaRF, PyNaCl, netifaces (wheels exist for all but
+   netifaces), and the radio tools (tcpdump, aircrack-ng, rtl-sdr, dump1090).
+
 ## Phased plan
 
 See **[`ROADMAP.md`](ROADMAP.md)** — the living tracking document with
@@ -337,6 +383,9 @@ feature-parity pass + community feedback (no App Store submission yet).
 - `ROADMAP.md` is the source of truth for status. At the end of each work
   session, update the task checkboxes/status and append a line to its
   progress log, so the next session can resume from the file alone.
+- Device access: SSH is the default way into the CardputerZero (M5's ADB is
+  optional). The host and user are deliberately **not** recorded in this repo
+  (it will be published); they live in the private Claude memory.
 - Talk to the owner in Portuguese; keep repo docs, code comments and
   commit messages in English.
 - UI fidelity to the original is a priority — keep palette, fonts, widget

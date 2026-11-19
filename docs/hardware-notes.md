@@ -133,6 +133,96 @@ presumably `github.com/m5stack/CardputerZero-AppBuilder`).
 - Publishing (`czdev login/publish/...`) exists but is **out of scope**
   for this project right now.
 
+## Measured on the device (2026-11-18)
+
+From `tools/phase0-probe.sh` plus follow-up read-only commands over SSH on the
+owner's unit. Raw reports aren't committed (hostnames/usernames). Where this
+section disagrees with the press/docs material above, this section wins.
+
+**System.** Hostname `CardputerZero`; Debian 13.7 *trixie*; kernel
+`6.18.39+rpt-rpi-v8` aarch64; device-tree model "Raspberry Pi Compute Module 0
+Rev 1.0"; 4 cores @ 1 GHz; Python 3.13.5; systemd 257; 29 GB SD (22 GB free).
+NetworkManager, wpa_supplicant, bluetooth and ssh run; `lightdm.service` is
+active but no Xorg/Xwayland/weston/cage/sway process was found. The login user
+is in `adm dialout cdrom sudo audio video plugdev games users netdev lpadmin
+gpio i2c spi render input`; sudo needs a password except for three M5 apps.
+
+**Memory.** `MemTotal` 361,392 kB (~353 MiB; `gpu_mem=128`,
+`dtoverlay=vc4-kms-v3d,cma-64`), `MemAvailable` ~145 MB with the launcher and
+services running, plus a 352 MiB zstd zram swap (~94 MB stored in ~16 MB).
+
+**Display.** `/dev/fb0` (alias `/dev/fb_lcd`): name `panel-mipi-dbid`, 320×170,
+16 bpp (RGB565), stride 640 B, group `video`. DRM: `card1` = `SPI-1` connected
+320×170 (alias `/dev/dri/cardputer-zero-internal`, platform
+`3f204000.spi-cs-0`); `card0` + `renderD128` = the vc4 GPU, HDMI disconnected.
+
+**Launcher / apps.** `/usr/share/APPLaunch/bin/M5CardputerZero-APPLaunch` runs as
+the login user from the systemd *user* unit `/usr/lib/systemd/user/APPLaunch.service`
+(`Restart=always`, `WorkingDirectory=/usr/share/APPLaunch`) and holds
+`/dev/fb0` and `/dev/input/event3` open. Apps are `.desktop` files in
+`/usr/share/APPLaunch/applications/` (`Terminal=false`, icons under
+`/usr/share/APPLaunch/share/images/`). Installed: Camera, Files, Music, Piano,
+Recorder, Compass, IR Chat/Remote, Keyboard Guide, ZClaw, Calculator, the
+AppStore, LaunchWizard, and Cap apps for LoRa-1262, LoRa-1262 GPS, CC1101 NFC
+and CC1101 Sub-GHz chat. `preinstalled-desktop-apps.tsv` has the columns
+`filename, Name, Icon, Exec, Terminal, Sysplause` — the last hints at a
+pause-the-launcher flag (unresolved). M5's ADB support is a USB-gadget script
+set in `/usr/share/APPLaunch/adb/`.
+
+**Packaging precedent.** `dpkg -L` of the Cap packages: the LoRa package ships
+`/usr/lib/udev/rules.d/70-cap-lora-1262.rules` (chgrp `gpio` + `g+w` on
+`/sys/class/leds/ext_5v_out/brightness`), the `.desktop`, an icon and an app
+under `/usr/share/Cap-LoRa-1262/bin/`; the GPS package ships
+`/etc/sudoers.d/m5cardputerzero-cap-lora-1262-gps` (mode 0440) and its
+`.desktop` uses `Exec=/usr/bin/sudo -n -- /usr/share/APPLaunch/bin/<App>`; the
+sudoers lines for the three Cap apps are `(root) NOPASSWD: <exact binary> ""`
+(no arguments). No per-app systemd service.
+
+**Input.** `tca8418c` at I²C `0x34` (i2c-1), IRQ GPIO27, 5 rows × 10 columns,
+node `/dev/input/event3` (alias `/dev/input/cardputer-zero-internal`, group
+`input`). The `cardputerzero-v5-overlay` defines three keymaps
+(`linux,keymap`, `linux,keymap1`, `linux,keymap2`) and the sym/fn/shift button
+codes `0x43/0x42/0x41`; decoded by eye, the fn keymap yields `KEY_UP(103)`,
+`KEY_DOWN(108)`, `KEY_LEFT(105)`, `KEY_RIGHT(106)`, F1–F12, PageUp(104),
+PageDown(109), Home(102), End(107), Insert(110), Delete(111), PrintScreen(99)
+and media/volume keys — i.e. the kernel does the fn-layer translation. Verify
+with a live capture.
+
+**GPIO / buses.** `gpiochip0` (bcm2835, 54 lines; `gpiochip4` is an alias),
+`gpiochip1` (`gpio-spi-cs`), `gpiochip2` (`m5ioe1`, 14 lines — an I²C IO
+expander at `0x4f` driving the 5 V rails and a USB mux; consumers
+`ext_usb_gpio_fun`, `grove_5v_out`, `ext_5v_out`). Pin states: G9/G10/G11 =
+SPI0 (alt0), G14/G15 = TXD1/RXD1 (alt5 → `/dev/ttyS0`, `/dev/serial0`), G2/G3 =
+I²C1, G4 = `grove_fun`, G6 = `irq` (power-fail), G7/G8 = SPI0 CS1/CS0, G12/G13
+= IR TX/RX, G17 = headphone detect, G24 = `enable`, G25 = `dc` (display),
+**G22/G23/G26 unclaimed**. `/dev/spidev0.1` exists (CS0 belongs to the display
+driver). LEDs for the rails: `/sys/class/leds/{ext_5v_out,grove_5v_out,ext_usb_gpio_fun,grove_fun}`.
+Boot config: `dtparam=spi=on`, `i2c_arm=on`, `i2s=on`, `enable_uart=1`,
+overlays `cardputerzero-v5-overlay`, `bq27220_v5`, `bmi270_bmm150_overlay`,
+`gpio-ir`, `gpio-ir-tx`, `imx219`, `dwc2`; kernel `console=tty1` (the UART is
+free) and `cfg80211.ieee80211_regdom=AE`.
+
+**Internal radio.** `wlan0` managed on `phy#0` (also a P2P-device), driver
+`brcmfmac` + `brcmfmac_cyw`, firmware `brcmfmac43439-sdio` (BCM43439/5, v7.95.75);
+`iw phy` supported modes: IBSS, managed, AP, P2P-client, P2P-GO, P2P-device —
+**no monitor** — and a single band (2.4 GHz). `wlan0` holds the default route.
+Bluetooth: `hci0`, bus UART, UP RUNNING, HCI/LMP 5.2, manufacturer Cypress
+(CYW4343A2, Murata Type-1YN), firmware
+`BCM4343A2.raspberrypi,0-compute-module.hcd`.
+
+**USB.** Host mode (dwc2): root hub → Genesys `05e3:0610` 4-port hub → USB LAN
+`0fe6:9900` (`eth0`, down). No ttyUSB/ttyACM devices present; the RTL-SDR
+kernel module isn't loaded.
+
+**Battery.** `/sys/class/power_supply/bq27220-0` (TI BQ27220): status,
+voltage, current, capacity, temperature, design capacity 1750 mAh — the source
+for the HUD's battery readout.
+
+**Not installed** (as of the probe): `pyxel`, `scapy`, `bleak`, `LoRaRF`,
+`PyNaCl`, `netifaces`, `tcpdump`, `aircrack-ng`, `evtest`, `rtl_test`,
+`rtl_433`, `dump1090`, `esptool`. Present: `iw`, `rfkill`, `wpa_cli`, `nmcli`,
+`pinctrl`, `gpioinfo`, `hciconfig`, `bluetoothctl`, `dtc`, `strings`.
+
 ## Sources
 
 - https://docs.m5stack.com/en/CardputerZero
