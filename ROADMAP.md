@@ -40,17 +40,18 @@ first RSS measurement.
 
 ## Phase 1 — Minimal running build (menus + map, no radio hardware)
 
-**Status:** ⬜ not started — blocked on 0.1 (pyxel on the device) and the
-vendoring rebase
+**Status:** 🔵 in progress — 1.1 (vendoring) done; next: the runtime shim and
+entry point (1.7) and the 320×170 layout (1.2)
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1.1 | Rebase `feat/aiov2-wifi-bt-fallback` onto upstream `main` (`8a2cb54`, v0.10.0+) in a **new** branch of the owner's fork (no force-push), then vendor `watchdogs/` from it; the vendoring commit records the exact source SHA | ⬜ | Upstream changed the portal client (UA platform detection, rabbits/game-state) — see `docs/portal-rules.md`. **Trial in a throwaway clone (2026-11-18): the 4 branch commits replay onto `8a2cb54` with no conflicts** — only `watchdogs/app.py` is touched by both sides, in different regions — and the result compiles. Record both the upstream base (`8a2cb54`) and the original branch tip (`cad1e77`) as provenance, since the rebased commits get new SHAs. Keep the upstream `LICENSE` (MIT, © LOCOSP) with the vendored code |
+| 1.1 | Rebase `feat/aiov2-wifi-bt-fallback` onto upstream `main` (`8a2cb54`, v0.10.0+) in a **new** branch of the owner's fork (no force-push), then vendor `watchdogs/` from it; the vendoring commit records the exact source SHA | ✅ | Upstream changed the portal client (UA platform detection, rabbits/game-state) — see `docs/portal-rules.md`. **Trial in a throwaway clone (2026-11-18): the 4 branch commits replay onto `8a2cb54` with no conflicts** — only `watchdogs/app.py` is touched by both sides, in different regions — and the result compiles. **Done 2026-11-18, commit `0603f22`:** vendored from the throwaway-clone rebase (tip `4bed612`) rather than a branch in the owner's fork, so nothing in the fork was touched (the owner can still create that branch later). Provenance, the reproduction recipe and re-sync steps are in `VENDORED.md`. Hard module-level dependencies of the game are only `pyxel` and `pyserial`; everything else (scapy, cryptography, dbus, bleak, LoRaRF, requests, netifaces, gi, nacl…) is imported lazily inside functions. Keep the upstream `LICENSE` (MIT, © LOCOSP) with the vendored code |
 | 1.2 | Re-layout HUD/menu/terminal/map for 320×170 | ⬜ | Proposal in `docs/ui-adaptation.md`; can be developed and reviewed entirely off-device with headless pyxel |
 | 1.3 | Remap keyboard bindings | ⬜ | **Measured:** the keyboard is a TCA8418 (I²C 0x34, 5×10 matrix) on `/dev/input/event3` (alias `/dev/input/cardputer-zero-internal`, group `input`), and the kernel overlay defines three keymaps (base, shift/sym, fn). Decoded by eye from the overlay, the fn layer emits real `KEY_UP/DOWN/LEFT/RIGHT`, F1–F12, PageUp/PageDown, Home/End, Insert/Delete and media keys — so no raw-matrix handling is needed. **Verified live** for the arrows with `tools/cz-demo.py` (0.11): they arrive as real `KEY_*` codes, and the `fn` key's own code 389 must be ignored. Still to check live: PgUp/PgDn/Home/End and the sym layer. pyxel's `KEY_*` constants are SDL keycodes, not evdev codes, so the shim (1.7) needs an evdev → `pyxel.KEY_*` table |
 | 1.4 | Stub out `aio_manager.py`'s `pinctrl`/`aiov2_ctl` rail toggles (uConsole/AIO-v2-only) | ⬜ | The Cap's 5 V rail is `/sys/class/leds/ext_5v_out` here — a candidate replacement for the "GPS/LoRa power" toggles |
 | 1.5 | Validate loot/XP persistence on the microSD-backed home dir | ⬜ | |
 | 1.6 | Game runs end-to-end with zero radio hardware attached | ⬜ | Upstream's fail-closed manager pattern should make this straightforward once 1.1–1.3 land |
+| 1.8 | Screen policy for long sessions | ⬜ | **No auto-lock while our app is in the foreground** — APPLaunch calls `ui_screensaver_set_foreground(0)` before handing off to an external app (default idle lock is 30 s, Settings → Screen → DarkTime; TAB hold 3 s locks) and restarts the idle timer when we exit. For wardriving that means the screen stays on (battery); decide an own dim/blank + wake-on-key policy. The backlight is writable without root: `/sys/class/backlight/backlight/brightness` (root:video `rw-rw-r--`, max 100). **Open (the owner chose to leave it):** does the lock only paint black, or really switch the backlight off? The launcher source paints a black overlay *and* dims the backlight, but sysfs read 100 while the screen was black — settle by comparing the BQ27220 `current_now` awake vs locked. A locked/blank screen reads as one colour in `tools/fb-screenshot.py` |
 | 1.7 | Headless-pyxel platform shim: evdev → `pyxel.set_btn`, buffer → RGB565 → `/dev/fb0`, plus the launcher handover | ⬜ | Depends on the 0.1 on-device results |
 
 **Exit criteria:** the game launches, renders correctly at 320×170, is
@@ -137,6 +138,18 @@ feedback has been collected and triaged.
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
 
+- **2026-11-18 (screen lock)** — Owner noticed the screen goes black when the
+  keyboard is idle. Cause (launcher source + device): APPLaunch's lock screen —
+  30 s idle by default — but it is disabled while an external app runs, so our
+  app won't be locked; added ROADMAP 1.8 (own screen policy) and documented it.
+  The backlight is writable without root. Whether the lock only paints black or
+  also switches the backlight off is deliberately **left open**.
+- **2026-11-18 (vendoring + docs consolidation)** — Vendored the game
+  unmodified (`0603f22`, `VENDORED.md`); only `pyxel`/`pyserial` are hard
+  module-level deps. Rewrote `CLAUDE.md` from scratch as the single, current
+  orientation document (it had become a patchwork of corrections). Added
+  `tools/fb-screenshot.py` (framebuffer screenshots over SSH; reads a single
+  colour when the screen is blank). Next: 1.7 shim, 1.2 layout.
 - **2026-11-18 (demo verified on the device)** — Owner registered the dev
   entry and ran "WDG Demo" from the carousel: it drew the 320×170 screen at
   ~30 fps (photo), the font is legible at 1:1, fn-layer arrows arrive as real

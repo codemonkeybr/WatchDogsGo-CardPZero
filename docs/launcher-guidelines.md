@@ -41,6 +41,38 @@ This explains our early on-device test: drawing to `/dev/fb0` from an SSH shell
 fought a launcher that wasn't paused and kept repainting its own frame; an app
 started *by* the launcher gets the screen to itself.
 
+## Lock screen, idle and backlight
+
+From the launcher's own developer notes (`projects/APPLaunch/AGENTS.md`,
+`ui_screensaver.cpp` in `CardputerZero/launcher`) and observed on the device:
+
+- The launcher has a **lock screen** (legacy file names say "screensaver"). Per
+  its source it paints a **full-screen black overlay** (so it looks black on
+  every backend) and, *as a power optimisation on top*, also drives the
+  backlight down (`launcher_media_controls::suspend_backlight`). It engages
+  after **30 s of keyboard inactivity** by default (Settings → Screen →
+  DarkTime; `0` disables auto-lock) and when **TAB is held for 3 s** on the
+  home screen. Waking: any key shows a wallpaper, TAB arms, ENTER unlocks.
+- **OPEN (left open by the owner): does the lock only paint black, or does it
+  really switch the backlight off on this unit?** The owner can't tell by eye.
+  The sysfs `brightness` isn't conclusive — it read 100/100 while the screen was
+  black (20:21) and 0 in an earlier probe. A way to settle it later: compare the
+  BQ27220 `current_now` (`/sys/class/power_supply/bq27220-0`) awake vs locked.
+- **It is switched off while an external app runs:** the launcher calls
+  `ui_screensaver_set_foreground(0)` before handing input/timers to the app and
+  `ui_screensaver_set_foreground(1)` when it comes back, which *clears* the lock
+  and restarts the idle interval. So a `Terminal=false` app of ours is never
+  auto-locked — good for a map you watch without touching keys, costly for
+  battery. Screen policy during long wardriving sessions is up to us
+  (ROADMAP 1.8).
+- **Backlight from the app side:** `/sys/class/backlight/backlight/brightness`
+  (0–100) is `root:video rw-rw-r--`, so a non-root app in group `video` can
+  dim/blank it. (The launcher's own `cp0_backlight_*` calls are a C ABI for its
+  LVGL apps — the `cp0_lvgl` component — and aren't reachable from Python.)
+- Practical consequence for development: after an app exits, the launcher
+  restarts its idle timer and locks 30 s later; a framebuffer read
+  (`tools/fb-screenshot.py`) of a locked screen returns a single colour.
+
 ## Two ways to add an app
 
 1. **A `.desktop` file only** (their "quick deploy", for development): drop a
