@@ -119,16 +119,23 @@ sticker strip reads GNSS / LoRa. Most likely M5's legacy **Cap LoRa868**.
 - **ESP32 (projectZero firmware)**: unchanged from the uConsole — USB serial
   at 115200, `serial_manager.py`. Should work on the host-mode USB ports; not
   yet tried.
-- **Internal WiFi/BT as a scan source**: `wlan0` (brcmfmac, **2.4 GHz only,
-  no monitor mode** — supported modes IBSS/managed/AP/P2P) and `hci0` (BT UART,
-  HCI 5.2). Good for WiFi/BLE *wardriving*, not for deauth/handshake/sniffer/
-  Evil Twin/SAE flood — those still need the ESP32 or an external monitor-mode
-  adapter. `wlan0` is also the only uplink (the SSH session rides on it), and
-  triggering `iw` scans needs `CAP_NET_ADMIN`. Upstream already has the
-  mechanism: `wdg_wifi_bridge.py` emulates an ESP32 over a PTY (`iw scan` +
-  `bleak`), and `serial_manager.detect_aiov2_bridge_port()` falls back to it.
-  Planned: an explicit setting `auto | esp32 | internal` (ROADMAP 2.8); keep
-  upstream identifiers and change only user-visible "AIO v2" strings.
+- **Internal WiFi/BT as a scan source — implemented (ROADMAP 2.7)**: `wlan0`
+  (brcmfmac, **2.4 GHz only, no monitor mode** — supported modes
+  IBSS/managed/AP/P2P) and `hci0` (BT UART, HCI 5.2). Good for WiFi/BLE
+  *wardriving*, not for deauth/handshake/sniffer/Evil Twin/SAE flood — those
+  still need the ESP32 or an external monitor-mode adapter. `wlan0` is also
+  the only uplink (the SSH session rides on it). Upstream's
+  `wdg_wifi_bridge.py` emulates an ESP32 over a PTY; its original `iw scan`
+  needs `CAP_NET_ADMIN` (root), so it's patched here to scan via
+  `nmcli dev wifi list --rescan yes` instead — NetworkManager does the
+  privileged part over D-Bus/polkit, so a plain `netdev`-group user can
+  trigger it with no sudo (confirmed on-device); `bleak`'s BLE scan was
+  already unprivileged via BlueZ D-Bus. `czplatform/internal_radio.py`
+  auto-starts the bridge (`--no-monitor`, PTY = `serial_manager.
+  AIOV2_BRIDGE_PTY`) whenever no real ESP32 is found — a real one always
+  wins. Still open (ROADMAP 2.8): an explicit `auto | esp32 | internal`
+  override, and the HUD shows "ESP32:OK" either way (cosmetic, upstream
+  string, not a real check).
 - **SDR**: NooElec NESDR SMART (RTL-SDR) through upstream's `sdr_manager.py`
   (`dump1090`, `rtl_433` subprocesses) — pure USB, no pins. Needs `rtl-sdr`,
   `rtl-433`, `dump1090` installed and `dvb_usb_rtl28xxu` blacklisted.
@@ -367,6 +374,14 @@ lines on stderr), `--data-dir`, `--serial`.
   the real cause of a LoRa-init failure that looked like a race condition at
   first. `scapy`, `bleak`, `PyNaCl`, `netifaces` are a known same-shaped gap,
   not yet checked.
+- **Before launching the game over SSH for a test, `ps aux | grep czplatform`
+  first.** Relaunching without checking left a previous session's process
+  running (never explicitly `quit`'d after an earlier test) at the same time
+  as the new one — both held `/dev/fb0` and raced to draw it, so screenshots
+  flickered between two different game states (one with LoRa/MeshCore
+  running, one without) until the stray was found by `ps aux` and killed with
+  `kill -INT <pid>` (not `-9` — SIGINT runs the game's own cleanup/shutdown
+  path, which is what powers the Cap rail back off).
 - The `fn` key emits code 389 — filter it. Unmapped fn combos arrive as the
   plain key.
 - The Cap is **not hot-swappable**; test LoRa **RX-only**; mind regional power

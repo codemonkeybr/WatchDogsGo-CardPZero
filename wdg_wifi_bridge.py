@@ -24,8 +24,17 @@ Changes from original (FusedStamen fork):
   - BLE fast-fail detection: warns if scan completes in under 2s with 0 results
   - Default bt-iface hci0 (CM4 internal UART BT, pinned via udev)
   - pip advice in log points to venv pip, not --break-system-packages
+  - WiFi scan via `nmcli dev wifi list --rescan yes` instead of `iw dev scan`:
+    NetworkManager (not this process) holds CAP_NET_ADMIN and lets any
+    `netdev`-group user trigger a scan over D-Bus, so no root is needed for
+    the --no-monitor case (CardputerZero's internal wlan0, single radio, no
+    monitor mode support anyway). `iw`/root are only required when a real
+    monitor-mode flip is requested (external adapter, uConsole-style setup)
+  - root check (geteuid) now only enforced when monitor mode is requested
+    (not --no-monitor); CardputerZero's internal-radio runs need neither
 
-Dependencies: bleak (venv), iw, ip (system)
+Dependencies: bleak (venv), nmcli (system, for scanning), iw (system, only
+  needed with monitor mode / an external adapter)
 Optional: hs_capture.py, pkt_sniff.py (for handshake/sniffer dispatch)
 """
 
@@ -109,58 +118,62 @@ def _iface_carries_default_route(iface: str) -> bool:
         return False
 
 
+def _nmcli_unescape_split(line: str, n: int) -> list[str]:
+    """Split one line of ``nmcli -t`` terse output on unescaped colons.
+
+    nmcli backslash-escapes colons that belong *inside* a field (the BSSID's
+    own colons, chiefly) but uses plain colons as the field separator, so a
+    naive ``line.split(":")`` breaks on the BSSID. Fixed-width (``n`` fields)
+    because an empty trailing SSID/security field is otherwise ambiguous.
+    """
+    parts = re.split(r"(?<!\\):", line)
+    parts = [p.replace("\\:", ":") for p in parts]
+    if len(parts) > n:
+        # a colon inside the (also unescaped-by-nmcli) SSID field — stitch
+        # the extra leading pieces back into the first (SSID) field
+        parts = [":".join(parts[:len(parts) - n + 1])] + parts[len(parts) - n + 1:]
+    return parts
+
+
 def scan_wifi(iface: str) -> list[dict]:
+    """Scan via NetworkManager (``nmcli``), not ``iw dev scan``.
+
+    ``iw scan`` actively triggers a radio scan and needs CAP_NET_ADMIN (root
+    in practice). ``nmcli`` asks NetworkManager — which already holds that
+    capability — to do it instead, over D-Bus/polkit; a plain `netdev`-group
+    user can trigger it with no root at all. That's the whole reason this
+    function exists instead of just calling `iw` directly: it's what lets the
+    internal-radio bridge run unprivileged on the CardputerZero.
+    """
     try:
         result = subprocess.run(
-            ["iw", "dev", iface, "scan"],
+            ["nmcli", "-t", "-f", "SSID,BSSID,CHAN,SIGNAL,SECURITY,FREQ",
+             "dev", "wifi", "list", "--rescan", "yes", "ifname", iface],
             capture_output=True, text=True, timeout=15
         )
     except subprocess.TimeoutExpired:
-        log.warning("iw scan timed out on %s", iface)
+        log.warning("nmcli scan timed out on %s", iface)
         return []
     except Exception as e:
-        log.error("iw scan failed: %s", e)
+        log.error("nmcli scan failed: %s", e)
         return []
 
     networks = []
-    current = {}
-
     for line in result.stdout.splitlines():
-        line = line.strip()
-        m = re.match(r"BSS ([0-9a-f:]{17})", line, re.IGNORECASE)
-        if m:
-            if current.get("bssid"):
-                networks.append(current)
-            current = {"bssid": m.group(1).upper(), "ssid": "", "channel": "0",
-                       "rssi": "-80", "security": "", "freq": 2412}
+        if not line.strip():
             continue
-        if not current:
+        ssid, bssid, chan, signal_, security, freq = _nmcli_unescape_split(line, 6)
+        if not bssid:
             continue
-        m = re.match(r"SSID: (.+)", line)
-        if m:
-            current["ssid"] = m.group(1).strip()
-            continue
-        m = re.match(r"freq: (\d+)", line)
-        if m:
-            current["freq"] = int(m.group(1))
-            continue
-        m = re.match(r"DS Parameter set: channel (\d+)", line)
-        if m:
-            current["channel"] = m.group(1)
-            continue
-        m = re.match(r"\* primary channel: (\d+)", line)
-        if m:
-            current["channel"] = m.group(1)
-            continue
-        m = re.match(r"signal: ([-\d.]+) dBm", line)
-        if m:
-            current["rssi"] = str(int(float(m.group(1))))
-            continue
-        if "WPA" in line or "RSN" in line or "WEP" in line:
-            current["security"] += " " + line.strip()
-
-    if current.get("bssid"):
-        networks.append(current)
+        freq_mhz = int(freq.split()[0]) if freq.split() else 2412
+        # nmcli's SIGNAL is a 0-100 "quality" percentage, not dBm; the game
+        # expects dBm-shaped numbers, so approximate with the common
+        # quality/2 - 100 mapping (0% -> -100 dBm, 100% -> -50 dBm)
+        rssi = str(int(signal_) // 2 - 100) if signal_.isdigit() else "-80"
+        networks.append({
+            "bssid": bssid.upper(), "ssid": ssid, "channel": chan or "0",
+            "rssi": rssi, "security": security, "freq": freq_mhz,
+        })
     return networks
 
 
@@ -647,8 +660,14 @@ def main():
                         help="Directory to save captures (default: ~/python/WatchDogsGo/loot)")
     args = parser.parse_args()
 
-    if os.geteuid() != 0:
-        print("ERROR: Must run as root (sudo)", file=sys.stderr)
+    # Root is only actually needed to flip the radio into monitor mode
+    # (CAP_NET_ADMIN). --no-monitor (the CardputerZero's internal wlan0,
+    # which has no monitor mode anyway) needs none of that: nmcli triggers
+    # the WiFi scan over D-Bus/polkit as a plain `netdev`-group user, and
+    # bleak's BLE scan goes through BlueZ's D-Bus interface the same way.
+    if not args.no_monitor and os.geteuid() != 0:
+        print("ERROR: Must run as root (sudo) to set monitor mode. "
+              "Pass --no-monitor if you don't need it.", file=sys.stderr)
         sys.exit(1)
 
     if not BLEAK_AVAILABLE:

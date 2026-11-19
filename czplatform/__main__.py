@@ -129,6 +129,12 @@ def main(argv=None) -> int:
         host.CapRail().on()
 
     port = args.serial or detect_esp32_port()
+    if port is None and not args.dry_run:
+        from . import internal_radio
+        port = internal_radio.maybe_start(args.data_dir)
+        if port:
+            import atexit
+            atexit.register(internal_radio.stop)
     log.info("starting game: serial=%s data_dir=%s view=%s", port,
              args.data_dir or "<project root>", args.view)
     try:
