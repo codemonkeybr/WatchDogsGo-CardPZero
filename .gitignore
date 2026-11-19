@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+*.deb
+secrets.conf
+.DS_Store
