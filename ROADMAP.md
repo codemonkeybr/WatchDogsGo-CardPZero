@@ -157,6 +157,40 @@ Append newest entries at the top. One line per session/milestone is enough
   "US/Canada Narrow" and the HUD shows the new nickname, and touring the
   MeshCore Messenger screen at 320×170 (still unreviewed).
 
+- **2026-11-19 (toured the MeshCore Region/Messenger screens live; reproduced the LoRa race condition, this time with no real TX)** —
+  Drove the real game on the panel via `--control` (launcher stopped first,
+  restarted after; `tools/fb-screenshot.py` for each step). **Region/nickname
+  confirmed through the game's own code**, not just the JSON file: the
+  ADDONS → MeshCore Region picker showed "US/Canada Narrow" already
+  highlighted as current, matching `~/.watchdogs_meshcore.json`; pressed
+  ENTER on it (no-op re-save, same region) to exercise `save_meshcore_config`
+  for real. Owner is fine with the advert TX now, so toggled System → LoRa
+  ON: the log said "LoRa enabled, MeshCore active" (the toggle's synchronous
+  success message) and it queued an advert as designed. But opening MeshCore
+  Messenger right after — twice, a few seconds apart — got
+  "[MC] Enable LoRa or connect PipBoy Watch" both times, i.e.
+  `self._lora.running` was `False` by then despite the "enabled" message.
+  This is the **race condition flagged after the 2nd incident**, now directly
+  reproduced: `_run_sniffer()`'s `_init_radio()` must have failed on the
+  background thread (SPI/SX1262 init), setting `running = False` *after*
+  `_toggle_lora()` had already read it as `True` and fired the advert. Traced
+  `_tx_queue` draining in `lora_manager.py`: it only happens inside the
+  RX/TX loop started *after* `_init_radio()` succeeds (`_run_sniffer`,
+  around the `if not self._tx_queue.empty(): self._do_tx(lora)` check) — when
+  init fails the function returns before that loop ever runs, so **the queued
+  advert this time was very likely never actually sent over RF**, unlike the
+  1st LoRa incident where the SX1262 path was known-working from the pin
+  probe. Root cause of the init failure itself not chased further this
+  session (rail was confirmed on, `ext_5v_out=255`); still an open bug — the
+  toggle's "ON"/success message should not be trusted without a later
+  `self._lora.running` recheck, and the UI's `[l] LoRa: ON` label reflects
+  `_lora_enabled` (the toggle intent), not actual hardware state. Turned LoRa
+  back off (clean path, `running` was already `False` so `.stop()` wasn't
+  even called), closed the menu, quit the game cleanly and restarted
+  `APPLaunch.service` — device left in its normal carousel state. MeshCore
+  Messenger's actual chat UI is still unseen (never got hardware-confirmed
+  LoRa to open it) and is still unadapted for 320×170 (not in `ui320.py`).
+
 - **2026-11-19 (SDR unlock finished; WiFi/BT wardrive + MeshCore tested; 2nd incident: LoRa toggle TXes an advert)** —
   Resumed via a scheduled job after the previous session hit its usage limit.
   **SDR confirmed end-to-end**: owner ran the rebuild (`-Prtlsdr` profile);
