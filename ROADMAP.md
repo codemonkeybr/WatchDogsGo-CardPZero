@@ -140,6 +140,50 @@ feedback has been collected and triaged.
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
 
+- **2026-11-19 (found and fixed the LoRa init bug: `LoRaRF` was never installed in the device venv)** —
+  Investigated the race condition logged in the previous entry ("LoRa enabled"
+  message but `self._lora.running` false seconds later). Root cause was much
+  simpler than the race itself: `.venv/bin/python -c "import LoRaRF"` raised
+  `ModuleNotFoundError` on the device — `LoRaRF>=1.4.0` is declared in
+  `requirements.txt` but was never actually installed in
+  `~/WatchDogsGo-CardPZero/.venv` (a `--system-site-packages` venv, and
+  LoRaRF isn't a Debian package, so nothing pulled it in). `_init_radio()`'s
+  `except ImportError` branch returned `None` immediately — no GPIO/SPI was
+  ever touched — which is also why no real transmission happened in the
+  "2nd incident"/this morning's test: the TX queue is only drained inside the
+  loop that starts after a successful init (previous entry), and init never
+  got that far. **Searched for an existing CardputerZero-specific MeshCore
+  app to diff against (as asked)**: found none — M5Stack's own Cap LoRa-1262
+  examples are C++/RadioLib for the ESP32 "Cardputer Adv" (different pins,
+  different OS entirely), and the closest Python MeshCore project
+  (`pymc-core`/pyMC_Core on PyPI) isn't CardputerZero-specific either, so
+  there was no real source to compare against. Did turn up something more
+  useful while chasing the ImportError by a different route: LoRaRF's own
+  `SX126x.begin()` drives reset/busy through `RPi.GPIO`, and that library is
+  known-broken on 6.6+ kernels (several Meshtastic/gpiozero reports) — **but
+  this device already has the fix for that pre-installed**: Raspberry Pi OS's
+  own `python3-rpi-lgpio` package (`RPi.GPIO` 0.7.2 API, backed by `lgpio`)
+  sits in the system site-packages this venv inherits. Fixed by
+  `.venv/bin/pip install 'LoRaRF>=1.4.0'` — which *also* pulled in the real
+  `RPi.GPIO` 0.7.1 from PyPI as a declared sub-dependency, reintroducing the
+  exact problem the system shim avoids (a venv-local package shadows the
+  system one on `--system-site-packages` venvs). Removed it right after
+  (`pip uninstall -y RPi.GPIO`) so the import falls back to the system
+  `rpi-lgpio` shim — confirmed by `import RPi.GPIO` resolving to
+  `/usr/lib/python3/dist-packages/RPi/GPIO/__init__.py` afterwards. **Verified
+  fixed on the real panel**: toggled LoRa on again (owner OK'd the TX) and
+  this time got `[LoRa]   TX: 112B sent` — a real transmission on the new
+  US/Canada Narrow preset — and MeshCore Messenger opened correctly,
+  header reading `MESHCORE [public] [ACTIVE] pkts:1 node:t35DogP0 nodes:0`,
+  confirming the nickname end-to-end through the real chat screen (which,
+  readable as a bonus, already seems to lay out tolerably at 320×170 even
+  though it's not in `ui320.py` yet — worth a closer look later). Turned LoRa
+  back off, quit the game cleanly, restarted `APPLaunch.service`. **Loose
+  end**: `pip list` in the venv also shows no `scapy`, `bleak`, `PyNaCl` or
+  `netifaces` — the same "declared in `requirements.txt`, never actually
+  installed" gap may affect other lazily-imported features; not chased
+  further this session, only LoRaRF was in scope.
+
 - **2026-11-19 (SDR shim confirmed installed; MeshCore nickname/region set for US/Canada)** —
   Owner confirmed the pending `sudo install` ran; verified on the device:
   `/usr/local/bin/dump1090` now matches `tools/dump1090-readsb-shim.sh`

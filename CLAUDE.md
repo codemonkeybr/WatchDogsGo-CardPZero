@@ -351,6 +351,22 @@ lines on stderr), `--data-dir`, `--serial`.
 - libgpiod **v2** `gpioinfo` takes line names, not chip names; use plain
   `gpioinfo` or `gpioinfo -c gpiochip0`.
 - GitHub's compare API lists commits **oldest first** (I misread it once).
+- **`pip install` into the `--system-site-packages` venv can shadow a working
+  system package with a broken PyPI one.** `RPi.GPIO` is the concrete case:
+  the device's system site-packages has Raspberry Pi OS's `python3-rpi-lgpio`
+  (the `RPi.GPIO` API backed by `lgpio`, the one that actually works on this
+  6.18 kernel), but `pip install LoRaRF` pulls in real `RPi.GPIO` from PyPI as
+  a sub-dependency and installs it **into the venv**, which then shadows the
+  working system one. Fix: `pip uninstall -y RPi.GPIO` right after, and
+  re-check `import RPi.GPIO; RPi.GPIO.__file__` resolves back to
+  `/usr/lib/python3/dist-packages/...` before trusting anything that imports
+  it (ROADMAP, "found and fixed the LoRa init bug").
+- Checking `requirements.txt` lists a package is **not** the same as checking
+  it's installed in the device venv — `LoRaRF>=1.4.0` was declared but simply
+  never `pip install`ed there, and that alone (not a GPIO/timing issue) was
+  the real cause of a LoRa-init failure that looked like a race condition at
+  first. `scapy`, `bleak`, `PyNaCl`, `netifaces` are a known same-shaped gap,
+  not yet checked.
 - The `fn` key emits code 389 — filter it. Unmapped fn combos arrive as the
   plain key.
 - The Cap is **not hot-swappable**; test LoRa **RX-only**; mind regional power
