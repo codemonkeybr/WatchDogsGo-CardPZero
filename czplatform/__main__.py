@@ -102,6 +102,9 @@ def main(argv=None) -> int:
 
     panel = display.Panel(None if args.no_fb else args.fb, view=args.view)
     injector = None if args.no_input else keys.KeyInjector(pyxel, args.input)
+    if injector is not None and args.canvas == "320x170":
+        from . import ui320
+        injector.filter = ui320.input_filter  # the log view owns its scroll keys
     script = [s for s in args.script.split(",") if s] if args.script else None
     if script:
         args.png = None                      # the script decides what to capture

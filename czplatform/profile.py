@@ -19,7 +19,7 @@ log = logging.getLogger("czplatform.profile")
 
 PROFILES = {
     "640x360": None,
-    "320x170": {"W": 320, "H": 170, "HUD_TOP": 10, "HUD_BOT": 10, "TERM_H": 30},
+    "320x170": {"W": 320, "H": 170, "HUD_TOP": 10, "HUD_BOT": 10, "TERM_H": 10},
 }
 
 

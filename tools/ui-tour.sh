@@ -14,9 +14,16 @@ mkdir -p "${1:-ui-tour}"
 OUT="$(cd "${1:-ui-tour}" && pwd)"
 CANVAS="${2:-320x170}"
 
-STEPS="wait:40,png:$OUT/01-boot.png,key:RETURN,wait:90,png:$OUT/02-main.png"
-STEPS+=",key:TAB,wait:15,png:$OUT/03-menu-scan.png"
-n=4
+STEPS="wait:40,png:$OUT/01-boot.png,key:RETURN,wait:90"
+# fill the game's log, so the ticker shows the newest line and the log view is full
+for i in $(seq 1 22); do
+    STEPS+=",log:[LoRa] node $i heard rssi -$((50 + i))"
+done
+STEPS+=",log:[WARN] GPS not found,wait:3,png:$OUT/02-main.png"
+# ENTER on the map switches to the full-screen log (320x170 profile) and back
+STEPS+=",key:RETURN,wait:12,png:$OUT/03-log.png,key:RETURN,wait:12"
+STEPS+=",key:TAB,wait:15,png:$OUT/04-menu-scan.png"
+n=5
 for tab in sniff attack addons system plugin; do
     STEPS+=",key:RIGHT,wait:10,png:$OUT/0$n-menu-$tab.png"
     n=$((n + 1))

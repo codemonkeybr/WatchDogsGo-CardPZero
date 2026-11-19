@@ -47,7 +47,7 @@ WiFi/BT characteristics; the packaging model.
 **Done in the repo:** game code vendored unmodified; the platform layer
 `czplatform/` (display, keyboard, signals, host safety) with 25 passing unit
 tests; docs; probes/tools. **The 320×170 UI is under way** — top/bottom HUD,
-terminal ticker and menu are done as a compact layer (`czplatform/ui320.py`,
+the map/log split (ENTER switches between the map and a full-screen log) and the menu are done as a compact layer (`czplatform/ui320.py`,
 `--canvas 320x170`; samples in `docs/screenshots/`), with ≈45–64 MiB RSS on the
 CM0; the boot screen and the sub-screens still need work (ROADMAP 1.2).
 **The real game now runs headless through it** —
@@ -173,6 +173,13 @@ APPLaunch carousel ──(.desktop, Terminal=false, Exec=wrapper script)──�
   AppBuilder-style `packaging/{meta.env,stage.sh,postinst}` with
   `scripts/pack-deb.sh`; apt `Depends:` for system libs; **bundle pyxel** (not
   in Debian). No systemd service, no LVGL, no store publishing yet.
+- **Views and controls (320×170 profile)**: the map is the home view and its
+  last line is a one-line ticker of the newest log entry; **ENTER** (OK) toggles a
+  full-screen log, where the arrows (`fn`+F/X/Z/C), PgUp/PgDn (`fn`+L/M),
+  Home/End (`fn`+K/N) scroll, **ESC** returns and **TAB** opens the menu. The
+  scroll keys are consumed by `ui320.input_filter` (set on `KeyInjector.filter`)
+  before the game sees them — pyxel cannot un-press a key within a frame
+  (`set_btn(k, False)` only clears a key held from an earlier frame).
 - **Screen policy**: no auto-lock while we're the foreground app, so the screen
   stays on by itself; for long wardriving sessions decide our own dim/blank +
   wake-on-key policy (the backlight is writable without root) — ROADMAP 1.8.
@@ -323,7 +330,7 @@ lines on stderr), `--data-dir`, `--serial`.
   GPIO hazard).
 - **Compact-UI drift**: `ui320.py` replaces whole methods of `WatchDogsGame`
   (`_draw_hud_top`, `_draw_hud_bottom`, `_draw_terminal`, `_draw_menu`,
-  `_draw_menu_hacker`, `_load_hacker_sprite`, a wrapper on `_draw_messages`) at
+  `_draw_menu_hacker`, `_load_hacker_sprite`, plus wrappers on `_draw_messages`, `_draw_radar` and `update`) at
   run time. After every upstream sync, diff those methods against upstream — new
   HUD items or menu behaviour won't appear in the 320×170 layout until mirrored —
   and re-run `tools/ui-tour.sh`.

@@ -8,7 +8,8 @@ native size, same widgets — and only re-budgets the space:
 
 * HUD top    10 px  level / XP bar / hat / earned badges ... zoom / battery
 * HUD bottom 10 px  loot counters ... tools / LoRa / GPS (key hints moved to help)
-* terminal   30 px  a 3-line ticker (no header row)
+* terminal   10 px  a one-line ticker with the newest log entry; ENTER switches
+                    to a full-screen log (and back)
 
 Widths are computed from the actual strings (5 px per glyph) so nothing overlaps.
 """
@@ -207,40 +208,154 @@ def _tool_name(self):
     return ""
 
 
-def draw_terminal(self):
+# The map gets (almost) the whole screen and its last line is a ticker showing
+# the newest log entry. ENTER (OK) switches to a full-screen log and back; the
+# switch only happens while the map is what is on screen.
+
+LOG_LINE_H = 9
+_GAME = [None]                  # the running game instance, for input_filter
+
+
+def log_rows(h, hud_top, hud_bot):
+    """How many log lines fit in the full-screen view (under a title row)."""
+    return max(1, (h - hud_bot - (hud_top + 12) - 1) // LOG_LINE_H)
+
+
+def clamp_scroll(scroll, total, rows):
+    return max(0, min(scroll, max(0, total - rows)))
+
+
+def log_window(total, scroll, rows):
+    """[start, end) of the lines to show, newest at the bottom; ``scroll`` is
+    how many lines the view is scrolled up from the newest one."""
+    scroll = clamp_scroll(scroll, total, rows)
+    end = total - scroll
+    return max(0, end - rows), end
+
+
+def _line_color(self, lines, colors, i, default):
+    return colors[i] if len(colors) == len(lines) else default
+
+
+def _draw_ticker(self):
     A = _app()
-    line_h = 9
     pyxel.rect(0, A.TERM_Y, A.W, A.TERM_H, 0)
     pyxel.line(0, A.TERM_Y, A.W - 1, A.TERM_Y, A.C_MENU_BORDER)
+    with self._term_lock:
+        lines = list(self.terminal_lines[-1:])
+        colors = list(self._terminal_colors[-1:])
+    if lines:
+        pyxel.text(4, A.TERM_Y + 1, lines[0][:(A.W - 8) // CW],
+                   colors[0] if colors else A.C_TEXT)
 
+
+def _draw_log(self):
+    A = _app()
+    top = A.HUD_TOP
+    pyxel.rect(0, top, A.W, A.H - A.HUD_BOT - top, 0)
     with self._term_lock:
         lines = list(self.terminal_lines)
         colors = list(self._terminal_colors)
     total = len(lines)
-    max_visible = max(1, (A.TERM_H - 2) // line_h)
-    max_chars = (A.W - 8) // CW
-    if self.term_scroll == 0:
-        start, end = max(0, total - max_visible), total
-    else:
-        end = max(0, total - self.term_scroll)
-        start = max(0, end - max_visible)
+    rows = log_rows(A.H, A.HUD_TOP, A.HUD_BOT)
 
-    have_colors = len(colors) == total
-    y = A.TERM_Y + 2
-    for i in range(start, end):
-        pyxel.text(4, y, lines[i][:max_chars],
-                   colors[i] if have_colors else A.C_TEXT)
-        y += line_h
-
-    # status, right-aligned on the first line: running tool, or scroll position
-    status = f"SCROLL +{self.term_scroll}" if self.term_scroll > 0 else _tool_name(self)
+    pyxel.text(4, top + 1, "> OUTPUT", A.C_HACK_CYAN)
+    right = f"L:{total}"
+    pyxel.text(A.W - len(right) * CW - 4, top + 1, right, A.C_DIM)
+    status = (f"SCROLL +{self.term_scroll}" if self.term_scroll > 0
+              else _tool_name(self))
     if status:
-        sx = A.W - len(status) * CW - 3
-        pyxel.rect(sx - 2, A.TERM_Y + 1, A.W - sx + 2, 9, 0)
-        pyxel.text(sx, A.TERM_Y + 2, status,
+        pyxel.text(A.W - (len(right) + len(status) + 2) * CW - 4, top + 1, status,
                    A.C_DIM if self.term_scroll > 0 else A.C_WARNING)
+    pyxel.line(0, top + 10, A.W - 1, top + 10, A.C_MENU_BORDER)
+
+    start, end = log_window(total, self.term_scroll, rows)
+    y = top + 12
+    for i in range(start, end):
+        pyxel.text(4, y, lines[i][:(A.W - 8) // CW],
+                   _line_color(self, lines, colors, i, A.C_TEXT))
+        y += LOG_LINE_H
     if self.term_scroll == 0 and pyxel.frame_count % 30 < 20:
-        pyxel.text(4, min(y, A.TERM_Y + A.TERM_H - line_h), "_", A.C_HACK_CYAN)
+        pyxel.text(4, min(y, A.H - A.HUD_BOT - LOG_LINE_H), "_", A.C_HACK_CYAN)
+
+
+def draw_terminal(self):
+    self._cz_map_frame = pyxel.frame_count      # the map branch is on screen
+    if getattr(self, "_cz_view", "map") == "log":
+        _draw_log(self)
+    else:
+        _draw_ticker(self)
+
+
+def _map_is_idle(self):
+    """True when the map is the active screen and nothing modal is open."""
+    on_screen = getattr(self, "_cz_map_frame", -99) >= pyxel.frame_count - 2
+    return bool(on_screen and not self.menu_open
+                and not getattr(self, "input_mode", False)
+                and not getattr(self, "confirm_quit", False)
+                and not getattr(self, "_boot_phase", False)
+                and not getattr(self, "_attack_mode", "")
+                and not getattr(self, "_gps_wait_dialog", False))
+
+
+def _update_view(self):
+    """Run before the game's own update: ENTER toggles map <-> log."""
+    _GAME[0] = self
+    view = getattr(self, "_cz_view", "map")
+    idle = _map_is_idle(self)
+    if view == "log" and not idle:
+        view = "map"                              # the menu or another screen took over
+    if idle and pyxel.btnp(pyxel.KEY_RETURN):
+        view = "log" if view == "map" else "map"
+        if view == "map":
+            self.term_scroll = 0                  # the ticker shows the newest
+    self._cz_view = view
+
+
+def scroll_log(game, code):
+    """Handle one scroll key in the log view; returns True if it was one."""
+    A = _app()
+    rows = log_rows(A.H, A.HUD_TOP, A.HUD_BOT)
+    with game._term_lock:
+        total = len(game.terminal_lines)
+    s = game.term_scroll
+    if code == 103:                               # UP
+        s += 1
+    elif code == 108:                             # DOWN
+        s -= 1
+    elif code == 104:                             # PAGEUP
+        s += rows - 1
+    elif code == 109:                             # PAGEDOWN
+        s -= rows - 1
+    elif code == 107:                             # END: back to the newest
+        s = 0
+    elif code == 102:                             # HOME: the oldest
+        s = total
+    else:
+        return False
+    game.term_scroll = clamp_scroll(s, total, rows)
+    return True
+
+
+def input_filter(code, value):
+    """Installed on the keyboard injector. In the log view the scroll keys, the
+    arrows and ESC belong to the log, so they never reach the game (which would
+    pan the map or ask to quit). Returns True when the event was consumed."""
+    game = _GAME[0]
+    if game is None or getattr(game, "_cz_view", "map") != "log":
+        return False
+    if code == 1:                                 # ESC: back to the map
+        if value == 1:
+            game._cz_view = "map"
+            game.term_scroll = 0
+        return True
+    if code in (105, 106):                        # LEFT/RIGHT: swallow, no pan
+        return True
+    if code in (102, 103, 104, 107, 108, 109):
+        if value in (1, 2):                       # press and auto-repeat
+            scroll_log(game, code)
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +531,18 @@ def draw_menu_hacker(self):
     pyxel.text(qx + (qw - len(quip) * CW) // 2, qy + (qh - 8) // 2, quip, c)
 
 
+def _in_log(game):
+    return getattr(game, "_cz_view", "map") == "log"
+
+
+def _hide_when(original, hide):
+    """Wrap a draw method so it is skipped while ``hide(game)`` is true."""
+    def wrapper(self):
+        if not hide(self):
+            original(self)
+    return wrapper
+
+
 def install():
     """Swap the compact drawing methods into the game class."""
     G = _app().WatchDogsGame
@@ -426,10 +553,15 @@ def install():
     G._draw_menu_hacker = draw_menu_hacker
     G._load_hacker_sprite = load_hacker_sprite
 
-    original_messages = G._draw_messages        # map toasts overlap the menu hint
+    # the map's toasts overlap the menu hint and the log; the radar is the map's
+    G._draw_messages = _hide_when(G._draw_messages,
+                                  lambda g: g.menu_open or _in_log(g))
+    G._draw_radar = _hide_when(G._draw_radar, _in_log)
 
-    def draw_messages(self):
-        if not self.menu_open:
-            original_messages(self)
+    original_update = G.update                  # ENTER toggles map <-> log
 
-    G._draw_messages = draw_messages
+    def update(self):
+        _update_view(self)
+        original_update(self)
+
+    G.update = update

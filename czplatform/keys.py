@@ -77,6 +77,7 @@ class KeyInjector:
             key = getattr(pyxel_module, name, None)
             if key is not None:
                 self.keymap[code] = key
+        self.filter = None          # optional ``f(code, value) -> bool``: True = consumed
         self._deferred = set()
         self._down_now = set()
         self._unmapped = set()
@@ -100,6 +101,8 @@ class KeyInjector:
                 self._apply(code, val)
 
     def _apply(self, code, val):
+        if self.filter is not None and self.filter(code, val):
+            return
         key = self.keymap.get(code)
         if key is None:
             if code not in self._unmapped:

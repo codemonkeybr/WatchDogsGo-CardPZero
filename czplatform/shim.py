@@ -118,7 +118,8 @@ class Runtime:
     def _step_script(self):
         """Tiny driver for hardware-free UI review: ``wait:N`` frames,
         ``key:NAME`` (a 2-frame press of ``pyxel.KEY_<NAME>``), ``png:PATH``
-        (panel view), ``quit``. Runs at the start of ``update``."""
+        (panel view), ``log:TEXT`` (a line into the game's log), ``quit``.
+        Runs at the start of ``update``."""
         px = self.pyxel
         due = [k for f, k in self._script_release if f <= self.frame]
         for key in due:
@@ -142,6 +143,8 @@ class Runtime:
             if cmd == "png":
                 self.panel.save_png(os.path.abspath(arg))
                 log.info("script: wrote %s", arg)
+            elif cmd == "log":                    # a line into the game's log
+                self.game._term_add(arg, raw=True)
             elif cmd == "quit":
                 self.shutdown("script finished")
             else:
