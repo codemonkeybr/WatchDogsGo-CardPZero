@@ -331,7 +331,9 @@ From read-only probes of the owner's unit (details in
 2. **Display = `/dev/fb0`**: 320×170, RGB565, an SPI panel driven through
    mipi-dbi (DRM `card1`), group `video`, no X/Wayland. So: headless pyxel +
    an RGB565 blit to fb0 (delta 3), no root. The launcher holds fb0 and the
-   keyboard node open; how it yields them to a launched app is still unknown.
+   keyboard node open and is *not* paused while an app runs; how it stays out
+   of the way is still unknown. Headless pyxel 3.0.2 already runs on the
+   device (26 MiB peak RSS).
 3. **RAM is the tightest resource**: ~353 MiB visible, ~145 MiB free with the
    launcher running, plus a 352 MiB zram swap. Budget the game's RSS early and
    import heavy modules (scapy) lazily.
@@ -349,11 +351,16 @@ From read-only probes of the owner's unit (details in
    `/dev/input/event3` (verify live; decoded by eye so far).
 6. **Internal radio**: no monitor mode (IBSS/managed/AP/P2P only), 2.4 GHz
    only, `iw` present, `hci0` up with BT 5.2 → scan-only source.
-7. **Cap LoRa-1262**: SX1262 on SPI0 **CS1** (`/dev/spidev0.1`; the uConsole
-   code uses bus 1 CS 0), GPS on **`/dev/ttyS0`** (G14/G15; console is on
-   `tty1`, so it's free), rail via `ext_5v_out`; BUSY/IRQ/RST are G22, G23,
-   G26 in some order — read it from M5's own LoRa app with `gpioinfo` while it
-   runs.
+7. **Cap LoRa pins** — derived by crossing M5's Cap-Bus table with the
+   CardputerZero EXT table, and checked with `gpioinfo` while M5's LoRa app
+   ran: SX1262 on SPI0 **CS1** (`/dev/spidev0.1`; the uConsole code uses bus 1
+   CS 0), **RST = G26** (measured as an output), **IRQ/DIO1 = G23**, **BUSY =
+   G22** (both inputs; which is which still rests on the pin-order
+   derivation), I²C on `/dev/i2c-1`; GPS on **`/dev/ttyS0` @ 115200**
+   (G14/G15; console is on `tty1`; NMEA verified, no fix indoors); rail via
+   `ext_5v_out`. The newer Cap LoRa-1262 also has a PI4IOE5V6408 whose P0
+   enables the RF antenna switch — nothing answered at I²C 0x43/0x44, so this
+   unit may be the legacy Cap LoRa868 (to confirm with the owner).
 8. **Python**: system 3.13.5 already has pyserial, Pillow, dbus, gi,
    cryptography, requests, lgpio, RPi.GPIO, gpiod, spidev, smbus2. Missing:
    pyxel, scapy, bleak, LoRaRF, PyNaCl, netifaces (wheels exist for all but
@@ -386,6 +393,9 @@ feature-parity pass + community feedback (no App Store submission yet).
 - Device access: SSH is the default way into the CardputerZero (M5's ADB is
   optional). The host and user are deliberately **not** recorded in this repo
   (it will be published); they live in the private Claude memory.
+- Dev environments: `.venv/` at the repo root (gitignored; pyxel + Pillow) for
+  headless renders on the dev machine, and a matching venv on the device at
+  `~/WatchDogsGo-CardPZero/.venv` (`--system-site-packages`).
 - Talk to the owner in Portuguese; keep repo docs, code comments and
   commit messages in English.
 - UI fidelity to the original is a priority — keep palette, fonts, widget

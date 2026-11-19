@@ -61,6 +61,10 @@ def main() -> int:
               f"{sorted(set(raw))}", flush=True)
         pyxel.screen.save(args.out, args.scale)
         print(f"OK   wrote {args.out}", flush=True)
+        import resource
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        print(f"INFO peak RSS {rss / 1024:.1f} MiB (interpreter + pyxel)",
+              flush=True)
         print("SMOKE RESULT: ok", flush=True)
         pyxel.quit()
 

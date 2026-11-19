@@ -223,6 +223,47 @@ for the HUD's battery readout.
 `rtl_433`, `dump1090`, `esptool`. Present: `iw`, `rfkill`, `wpa_cli`, `nmcli`,
 `pinctrl`, `gpioinfo`, `hciconfig`, `bluetoothctl`, `dtc`, `strings`.
 
+## Cap LoRa-1262 pins on the CardputerZero (derived, 2026-11-18)
+
+M5's Cap pages (`…/products/sku/U201` "Cap LoRa868", `…/products/sku/U214` and
+`…/cap/Cap_LoRa-1262` "Cap LoRa-1262") document the pins as a **Cap-Bus** table
+plus the **Cardputer-Adv** GPIOs — they have no CardputerZero GPIO column.
+The CardputerZero page documents its 14-pin **EXT header**. The Cap-Bus is that
+same physical header, so crossing the two tables by position gives the mapping:
+
+| Cap-Bus pin | Function | EXT pin | CardputerZero GPIO |
+|---|---|---|---|
+| 8 | LoRa RST | 1 (HAT_P0) | **G26** |
+| 9 | LoRa IRQ (DIO1) | 3 (HAT_P1) | **G23** |
+| 10 | LoRa BUSY | 5 | **G22** |
+| 11 | LoRa SCK | 7 | G11 (SPI0_CLK) |
+| 12 | LoRa MOSI | 9 | G10 (SPI0_MOSI) |
+| 13 | LoRa MISO | 11 | G9 (SPI0_MISO) |
+| 14 | LoRa NSS | 13 | G7 (SPI0_CS1 → `/dev/spidev0.1`) |
+| 4 / 3 | SDA / SCL | 8 / 10 | G2 / G3 (I²C1 → `/dev/i2c-1`) |
+| 2 / 1 | GPS RX / TX (host perspective) | 12 / 14 | G15 / G14 (`/dev/ttyS0`) |
+| 5 / 6 / 7 | 5V_OUT / GND / 5V_IN | 6 / 4 / 2 | 5 V rails (`ext_5v_out`) |
+
+(Cap-Bus right column top→bottom lines up with the EXT left column top→bottom,
+and the SPI pins match one-to-one, which is what validates the crossing. The
+GPS labels are from the host's perspective: the Adv table pairs "GPS-RX" with the
+host's RX pin.)
+
+**Evidence on the device** (Cap attached, M5's LoRa app open): `gpioinfo`
+shows G26 as an **output** and G22/G23 as inputs, all with consumer
+`pw_digital_io_linux`; the app holds `/dev/spidev0.1`, `/dev/i2c-1` and
+`/dev/gpiochip0`; `ext_5v_out` reads 255. The GPS answers on `/dev/ttyS0` at
+**115200** baud (multi-constellation NMEA, `GNRMC status=V` / `GNGGA quality=0`
+indoors); 9600 returns nothing.
+
+**Not yet confirmed:** which of G22/G23 is BUSY vs DIO1 (it rests on the
+position argument above), and the RF switch. The Cap LoRa-1262 (not the older
+LoRa868) carries a PI4IOE5V6408 I/O expander on I²C whose **P0 must be driven
+high to enable the RF antenna switch** (`FM8625H`, `SX_ANT_SW`); M5's comparison
+table lists "RF Switch Control: None" for the LoRa868. A read of I²C `0x43` and
+`0x44` on `/dev/i2c-1` returned `EIO` (nothing there), so this unit may be the
+LoRa868 or the expander sits at another address.
+
 ## Sources
 
 - https://docs.m5stack.com/en/CardputerZero
