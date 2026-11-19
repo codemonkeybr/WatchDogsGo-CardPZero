@@ -140,6 +140,53 @@ feedback has been collected and triaged.
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
 
+- **2026-11-18 (live hardware test: ESP32-C5 + SDR; incident + SDR unlock in progress)** —
+  Owner plugged in the ESP32-C5 (same one as the uConsole) and the NooElec NESDR
+  on two USB ports and asked to test plane radar, WiFi/BT scan, wardriving and
+  MeshCore. **ESP32 confirmed working**: `serial_manager` found `/dev/ttyACM0`,
+  WiFi Scan (38 nets, incl. 5 GHz via the C5) and BLE Scan (144 devices, AirTag
+  summary) ran clean over `--control` + `fb-screenshot.py` on the real panel.
+  **MeshCore**: read (not changed) the uConsole's `~/.watchdogs_meshcore.json`
+  over SSH for region/channel info (region `us_ca_narrow`, channels incl.
+  `#yyc #wardriving`) — secrets stayed out of the repo. The uConsole's own LoRa
+  init fails (`GPIO not allocated`), so no live RX test between the two yet.
+  Confirmed `start_meshcore()` is RX-only (`start_sniffer`), safe to open.
+  **Incident**: selected "HS Capture no SD" under the SNIFF tab expecting a
+  passive capture — it is actually an **active deauth attack** and hit real
+  neighbouring networks ("Skynet", "WIFI-2DF4") before I sent `stop`. Stopped
+  all attack-family testing (Deauth, Blackout, SAE Flood, Evil Twin, MITM,
+  Dragon Drain, HS Capture) pending the owner's explicit per-target
+  authorization; filed as feedback. **Never test the portal/Wars Sync plugin**
+  without the owner present (owner's explicit instruction, `docs/portal-rules.md`).
+  **SDR unlock — in progress**: Debian 13 has no `dump1090` package; `readsb`
+  (its maintained successor, same CLI) is packaged but **the Debian binary is
+  built without RTL-SDR support** (`RTLSDR ?= no` upstream default; no
+  `librtlsdr0` dependency) — only Beast/GNS-HULC/network inputs work, so a USB
+  RTL-SDR dongle plugged into that binary never opens. Added
+  `tools/dump1090-readsb-shim.sh` (a `dump1090` shim on PATH wrapping `readsb`,
+  since `watchdogs/sdr_manager.py` hard-codes the name `dump1090` and is
+  vendored unmodified); owner ran `apt install rtl-sdr rtl-433 readsb` +
+  masked `readsb.service` (it auto-starts and would hold the dongle). **Next
+  step**: rebuild Debian's own `readsb` source with its `-Prtlsdr`
+  `DEB_BUILD_PROFILES` switch (confirmed present in `debian/rules`) instead of
+  pulling in a third-party repo or a different fork:
+  ```sh
+  sudo apt install -y --no-install-recommends \
+      devscripts dpkg-dev debhelper \
+      libusb-1.0-0-dev libncurses-dev zlib1g-dev zlib1g pkg-config \
+      libzstd-dev libzstd1 librtlsdr0 librtlsdr-dev
+  mkdir -p /tmp/readsb-build && cd /tmp/readsb-build
+  dget -u https://deb.debian.org/debian/pool/main/r/readsb/readsb_3.14.1630+git20240609.adc080d-1.dsc
+  cd readsb-3.14.1630+git20240609.adc080d
+  DEB_BUILD_OPTIONS=noddebs dpkg-buildpackage -b -Prtlsdr -ui -uc -us
+  cd .. && sudo dpkg -i readsb_3.14.1630+git20240609.adc080d-1_arm64.deb
+  ```
+  `readsb.service` stays masked (dpkg reinstalling the same version doesn't
+  unmask it); the `dump1090` shim needs no change. After this: verify with
+  `rtl_test -t`, then `dump1090 --net --quiet` + check port 30003, then try
+  the game's ADS-B Radar (ADDONS → `a`) and 433 MHz Scanner (ADDONS → `4`,
+  can't run at the same time as ADS-B — one RTL-SDR dongle). Still pending:
+  plane radar, 433 MHz, further MeshCore, and the rest of the owner's ask.
 - **2026-11-18 (loot screen — 1.2)** — The three-column loot database overflowed. New `draw_loot_screen` in `ui320.py`: two pages (LEFT/RIGHT; the game doesn't use those keys there) — totals/session/level/hat/badges, and status + recent WiFi/BLE; password viewer and search box fit as is. Open: the search *results* table (column offsets up to x=340) is untested with data and probably overflows. Tour now ends with both loot pages.
 - **2026-11-18 (boot screen — 1.2)** — Owner: the WATCH DOGS logo ran off the panel. Added a compact `_draw_boot_screen` in `ui320.py` (logo in 4×4 cells = 288 px, one-line subtitle, 9 px check rows, bar at the edges); checked frame by frame with `--dry-run --frames N`. Sub-screens still to tour.
 - **2026-11-18 (map/log split on the panel — 1.2)** — ENTER map ↔ log, scroll
