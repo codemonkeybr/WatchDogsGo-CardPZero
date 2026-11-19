@@ -331,8 +331,11 @@ From read-only probes of the owner's unit (details in
 2. **Display = `/dev/fb0`**: 320×170, RGB565, an SPI panel driven through
    mipi-dbi (DRM `card1`), group `video`, no X/Wayland. So: headless pyxel +
    an RGB565 blit to fb0 (delta 3), no root. The launcher holds fb0 and the
-   keyboard node open and is *not* paused while an app runs; how it stays out
-   of the way is still unknown. Headless pyxel 3.0.2 already runs on the
+   keyboard node open; per M5's APPLaunch guide it starts `Terminal=false`
+   apps with fork+execlp and **pauses its own refresh while they run**, and
+   long-pressing Home (fn+K) for 5 s sends them SIGINT (SIGKILL 3 s later) — my
+   early SSH tests clashed with it because the launcher didn't know about
+   them (`docs/launcher-guidelines.md`). Headless pyxel 3.0.2 already runs on the
    device (26 MiB peak RSS), and `tools/fb-blit-test.py` shows a 320×170
    RGB565 blit to fb0 sustaining 30 fps at ~16% of one core.
 3. **RAM is the tightest resource**: ~353 MiB visible, ~145 MiB free with the
@@ -368,6 +371,17 @@ From read-only probes of the owner's unit (details in
    cryptography, requests, lgpio, RPi.GPIO, gpiod, spidev, smbus2. Missing:
    pyxel, scapy, bleak, LoRaRF, PyNaCl, netifaces (wheels exist for all but
    netifaces), and the radio tools (tcpdump, aircrack-ng, rtl-sdr, dump1090).
+9. **Follow M5's own guidelines for integration and packaging** (decision
+   2026-11-18, suggested by the owner; `docs/launcher-guidelines.md`): a
+   `.desktop` entry in `/usr/share/APPLaunch/applications/` with
+   `Terminal=false` and a plain-path `Exec` (a wrapper script — shell
+   metacharacters are rejected), and a `.deb` laid out per AppBuilder's
+   `packaging/` convention (`meta.env`, `stage.sh`, `postinst`, icon,
+   `scripts/pack-deb.sh`). M5's own Python example renders exactly like our
+   plan (Pillow → RGB565 → `mmap` of `/dev/fb0`, evdev keys), so the game stays
+   Python/pyxel — no LVGL rewrite, no systemd service, no store publishing yet.
+   A `.desktop` alone is enough for the dev loop (no `.deb` needed). The game
+   must exit cleanly on SIGINT (the launcher's kill path).
 
 ## Phased plan
 

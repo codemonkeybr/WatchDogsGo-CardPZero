@@ -58,6 +58,9 @@ def main() -> int:
     ap.add_argument("--no-restore", action="store_true",
                     help="leave the last frame on screen instead of restoring")
     args = ap.parse_args()
+    # pyxel changes the working directory to the script's folder when it
+    # starts, so resolve user-supplied paths before that happens.
+    args.assets = os.path.abspath(args.assets)
 
     import pyxel
 

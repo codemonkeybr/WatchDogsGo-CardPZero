@@ -165,8 +165,10 @@ the login user from the systemd *user* unit `/usr/lib/systemd/user/APPLaunch.ser
 Recorder, Compass, IR Chat/Remote, Keyboard Guide, ZClaw, Calculator, the
 AppStore, LaunchWizard, and Cap apps for LoRa-1262, LoRa-1262 GPS, CC1101 NFC
 and CC1101 Sub-GHz chat. `preinstalled-desktop-apps.tsv` has the columns
-`filename, Name, Icon, Exec, Terminal, Sysplause` — the last hints at a
-pause-the-launcher flag (unresolved). M5's ADB support is a USB-gadget script
+`filename, Name, Icon, Exec, Terminal, Sysplause` — `Sysplause` turns out
+to be the "press any key to return" prompt for `Terminal=true` apps, not a
+pause-the-launcher flag; see `docs/launcher-guidelines.md` for how the launcher
+really behaves. M5's ADB support is a USB-gadget script
 set in `/usr/share/APPLaunch/adb/`.
 
 **Packaging precedent.** `dpkg -L` of the Cap packages: the LoRa package ships

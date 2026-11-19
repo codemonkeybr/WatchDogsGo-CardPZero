@@ -30,6 +30,10 @@ def main() -> int:
     ap.add_argument("--headless", action="store_true",
                     help="pyxel.init(headless=True): no window, no OpenGL")
     args = ap.parse_args()
+    # pyxel changes the working directory to the script's folder when it
+    # starts, so resolve user-supplied paths before that happens.
+    args.assets = os.path.abspath(args.assets)
+    args.out = os.path.abspath(args.out)
 
     try:
         import pyxel
