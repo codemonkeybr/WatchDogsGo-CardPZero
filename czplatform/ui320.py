@@ -793,3 +793,22 @@ def install():
         original_update(self)
 
     G.update = update
+
+    # app.py's own plugin-overlay branch (_draw_inner) hard-codes
+    # p.draw(0, 0, 640, 360) regardless of the active canvas profile, so a
+    # plugin overlay (e.g. wardrive_upload's Wars Sync screen) lays itself
+    # out for a 640-wide canvas even when the real one is 320x170 — found
+    # live, 2026-11-20 (the sync log's divider/column math only made sense
+    # at 640). Intercept just that branch with the real pyxel dimensions;
+    # everything else still goes through the untouched original draw().
+    original_draw = G.draw
+
+    def draw(self):
+        for p in self._plugins:
+            if getattr(p, "overlay_active", False):
+                p.draw(0, 0, pyxel.width, pyxel.height)
+                self._draw_mc_toast()
+                return
+        original_draw(self)
+
+    G.draw = draw

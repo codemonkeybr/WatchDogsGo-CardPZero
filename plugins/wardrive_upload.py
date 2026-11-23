@@ -198,6 +198,30 @@ def _load_secrets_conf() -> dict:
     return result
 
 
+def _word_wrap(text: str, width: int) -> list[str]:
+    """Greedy word-wrap for the Sync Log column (draw() below) — splits only
+    on spaces, falling back to a hard break for a single token longer than
+    ``width`` (e.g. a long session filename)."""
+    if width <= 0 or len(text) <= width:
+        return [text]
+    lines: list[str] = []
+    cur = ""
+    for word in text.split(" "):
+        if not cur:
+            cur = word
+        elif len(cur) + 1 + len(word) <= width:
+            cur += " " + word
+        else:
+            lines.append(cur)
+            cur = word
+        while len(cur) > width:
+            lines.append(cur[:width])
+            cur = cur[width:]
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 class WardriveUpload(PluginBase):
     NAME = "Watch Dogs Go Wars Sync"
     VERSION = "2.1"
@@ -217,6 +241,14 @@ class WardriveUpload(PluginBase):
         self._url_input = ""
         self._entering_key = False
         self._entering_url = False
+        # Device pairing (/api/device-pair) — preferred over typing the key
+        self._pairing_active = False
+        self._pair_code = ""
+        self._pair_poll_secret = ""
+        self._pair_expires_at = 0.0
+        self._pair_last_poll = 0.0
+        self._pair_polling = False
+        self._pair_status = ""
         # Auth push — PIN display
         self._auth_pin = ""
         self._auth_pin_expiry = 0
@@ -331,6 +363,24 @@ class WardriveUpload(PluginBase):
                 self._url_input = ""
             return
 
+        # Device pairing mode — show a short code, poll until claimed
+        if self._pairing_active:
+            import time as _time
+            if pyxel.btnp(pyxel.KEY_ESCAPE):
+                self._cancel_pairing()
+                return
+            if _time.time() > self._pair_expires_at:
+                self._pair_status = "expired"
+                self._log_add("Pairing code expired — try again", 10)
+                self._pairing_active = False
+                return
+            if (not self._pair_polling
+                    and _time.time() - self._pair_last_poll > 3):
+                self._pair_last_poll = _time.time()
+                threading.Thread(target=self._pairing_poll_worker,
+                                  daemon=True).start()
+            return
+
         if pyxel.btnp(pyxel.KEY_ESCAPE):
             self._overlay_active = False
             if self.app:
@@ -385,6 +435,55 @@ class WardriveUpload(PluginBase):
                        "https://your-server.example/api/upload/  [ENTER] Confirm", 13)
             return
 
+        # Device pairing overlay — as large as the canvas allows, the code
+        # itself in the 8x8 BDF font (self.app._big_font, the same one the
+        # auth-PIN popup below uses) instead of the default Spleen 5x8, since
+        # it's meant to be read off the device at a glance while typing it
+        # into a browser elsewhere.
+        if self._pairing_active:
+            import time as _time
+            cx, cy = w // 2, h // 2
+            bw, bh = w - 8, h - 8
+            x0, y0 = cx - bw // 2, cy - bh // 2
+            pyxel.rect(x0, y0, bw, bh, 1)
+            pyxel.rectb(x0, y0, bw, bh, 10)
+            pyxel.rectb(x0 + 2, y0 + 2, bw - 4, bh - 4, 3)
+            pyxel.text(cx - 54, y0 + 8, "PAIR THIS DEVICE", 10)
+            pyxel.line(x0 + 8, y0 + 18, x0 + bw - 8, y0 + 18, 3)
+
+            # The code, 3x the size of the 8x8 big font: pyxel has no
+            # scaled text(), so it's rendered tight-packed into scratch
+            # image bank 0 (free everywhere else in this codebase — not a
+            # sprite slot) and blt'd back onto the screen with scale=3.
+            code = self._pair_code or "......"
+            bf = self.app._big_font if self.app else None
+            band_top, band_bot = y0 + 22, y0 + bh - 36
+            if bf:
+                SCALE = 3
+                char_w = 9
+                total_w = len(code) * char_w
+                scratch = pyxel.image(0)
+                scratch.cls(0)
+                for i, ch in enumerate(code):
+                    scratch.text(i * char_w, 0, ch, 7, bf)
+                px = cx - (total_w * SCALE) // 2
+                py = band_top + (band_bot - band_top - 8 * SCALE) // 2
+                pyxel.blt(px, py, 0, 0, 0, total_w, 8, 0, scale=SCALE)
+            else:
+                px = cx - len(code) * 6
+                py = band_top + (band_bot - band_top - 8) // 2
+                for ch in code:
+                    pyxel.text(px, py, ch, 7)
+                    px += 12
+
+            pyxel.text(x0 + 10, y0 + bh - 32,
+                       "Enter this code on your WDGWars account page", 13)
+            remaining = max(0, int(self._pair_expires_at - _time.time()))
+            status = "polling..." if self._pair_polling else "waiting"
+            pyxel.text(x0 + 10, y0 + bh - 16,
+                       f"{status}  expires in {remaining}s  [ESC] Cancel", 13)
+            return
+
         # Left: menu
         items = self._overlay_items()
         cy = 20
@@ -395,14 +494,38 @@ class WardriveUpload(PluginBase):
             pyxel.text(4, cy, f"{prefix} {label}", c)
             cy += 10
 
-        # Right: log
-        lx = 250
+        # Right: log — the divider sits just past the longest menu label
+        # instead of a canvas-width-640 magic number, so it still fits the
+        # 320-wide compact profile (found live, 2026-11-20: at 320 px the
+        # fixed lx=250 left only ~70 px for the log column, clipping every
+        # line, e.g. "Requesting pai...", "Pairing reques..."). Even widened,
+        # a long entry ("Done: 7/11 sessions, +3573 networks...") still runs
+        # past the column — word-wrap it onto extra lines instead of
+        # silently truncating it (also found live, same day), so nothing in
+        # the log is actually lost, just reflowed.
+        label_chars = max((len(label) for _, label in items), default=40) + 2
+        lx = min(w - 60, 4 + label_chars * 5 + 10)
         pyxel.line(lx - 4, 14, lx - 4, h - 16, 1)
         pyxel.text(lx, 16, "-- Sync Log --", 3)
+        max_total_lines = max(1, (h - 44) // 8)
+        max_chars = max(8, (w - lx - 4) // 5)
+
+        blocks = []  # newest entry first; each item a list of (chunk, color)
+        line_count = 0
+        for text, color in reversed(self._log):
+            chunks = _word_wrap(text, max_chars)
+            blocks.append([(c, color) for c in chunks])
+            line_count += len(chunks)
+            if line_count >= max_total_lines:
+                break
+        visible = []
+        for block in reversed(blocks):
+            visible.extend(block)
+        visible = visible[-max_total_lines:]
+
         ly = 28
-        max_lines = (h - 44) // 8
-        for text, color in self._log[-max_lines:]:
-            pyxel.text(lx, ly, text[:48], color)
+        for chunk, color in visible:
+            pyxel.text(lx, ly, chunk, color)
             ly += 8
 
         pyxel.text(4, h - 22,
@@ -426,6 +549,7 @@ class WardriveUpload(PluginBase):
             ("upload_latest", "Upload Latest Session"),
             ("show_profile", "Show My Profile"),
             ("sync_badges", "Sync Badges"),
+            ("pair_device", "Pair Device (short code)"),
             ("set_key", "Set API Key"),
             ("test_api", "Test API Connection"),
             ("show_pending", "Show Pending Sessions"),
@@ -441,6 +565,8 @@ class WardriveUpload(PluginBase):
         elif action == "set_url":
             self._entering_url = True
             self._url_input = self._api_url
+        elif action == "pair_device":
+            self._start_pairing()
         elif action == "set_key":
             self._entering_key = True
             self._key_input = self._api_key
@@ -1134,6 +1260,57 @@ class WardriveUpload(PluginBase):
         self._api_key = api_key
         self._save_secret("WARDRIVE_API_KEY", api_key)
         self._start_auth_poll()
+
+    # ------------------------------------------------------------------
+    # Device pairing UI — wires request_pair()/poll_pair()/adopt_api_key()
+    # (above) into the overlay, so linking an existing account doesn't need
+    # typing a 64-char hex key on this keyboard (docs/portal-rules.md).
+    # ------------------------------------------------------------------
+    def _start_pairing(self):
+        self._pair_status = "requesting"
+        self._log_add("Requesting pairing code...", 3)
+        threading.Thread(target=self._pairing_request_worker, daemon=True).start()
+
+    def _pairing_request_worker(self):
+        label = f"CardputerZero-{_hw_id()}"
+        data = self.request_pair(label=label)
+        if not data:
+            self._pair_status = ""
+            self._log_add("Pairing request failed", 8)
+            return
+        self._pair_code = data.get("code", "")
+        self._pair_poll_secret = data.get("poll", "")
+        import time as _time
+        self._pair_expires_at = _time.time() + data.get("expires_in", 300)
+        self._pair_last_poll = 0.0
+        self._pairing_active = True
+        self._pair_status = "waiting"
+        self._log_add(f"Code: {self._pair_code}", 11)
+
+    def _pairing_poll_worker(self):
+        self._pair_polling = True
+        result = self.poll_pair(self._pair_code, self._pair_poll_secret)
+        self._pair_polling = False
+        if result.get("api_key"):
+            self.adopt_api_key(result["api_key"])
+            username = result.get("username", "")
+            self._log_add(f"Paired as {username}" if username else "Paired!", 11)
+            self._pairing_active = False
+            self._pair_status = ""
+            threading.Thread(target=self._validate_and_apply_user,
+                              daemon=True).start()
+        elif result.get("pending"):
+            pass  # keep waiting
+        else:
+            self._pair_status = f"error: {result.get('error', '?')}"
+            self._log_add(f"Pairing failed: {result.get('error', '?')}", 8)
+            self._pairing_active = False
+
+    def _cancel_pairing(self):
+        self._pairing_active = False
+        self._pair_status = ""
+        self._pair_code = ""
+        self._pair_poll_secret = ""
 
     # ------------------------------------------------------------------
     # API test
