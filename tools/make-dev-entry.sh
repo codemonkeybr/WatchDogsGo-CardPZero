@@ -39,20 +39,31 @@ exec "$ROOT/.venv/bin/python" -m czplatform --canvas 320x170
 EOF
 chmod 0755 "$ROOT/dev/wdg-game.sh"
 
+# Icon=<absolute path outside /usr/share/APPLaunch> looked supported from
+# reading the launcher's source (launcher_platform.hpp's `path()` just
+# forwards to an opaque IPC call, "Path", with no visible restriction) but
+# did NOT work live (2026-11-20): the carousel showed every first-party app's
+# fallback icon (an embedded M5Stack logo, home_icon_fallback.c) instead, with
+# no error — LVGL's PNG decoder failing or the path not resolving both land
+# on that same silent fallback. Every working app's Icon= is
+# "share/images/<name>.png", resolved relative to /usr/share/APPLaunch/ —
+# follow that convention instead of trusting the absolute-path reading.
 cat >"$ROOT/dev/wdg-game.desktop" <<EOF
 [Desktop Entry]
 Name=WatchDogsGo (dev)
 Exec=$ROOT/dev/wdg-game.sh
 Terminal=false
-Icon=share/images/cli_100.png
+Icon=share/images/watchdogs-icon-100.png
 Type=Application
 EOF
 
 echo "created in $ROOT/dev/: wdg-demo.{sh,desktop} and wdg-game.{sh,desktop}"
 echo
 echo "Register the entries with APPLaunch (needs your sudo password, once):"
+echo "  sudo cp $ROOT/assets/watchdogs-icon-100.png /usr/share/APPLaunch/share/images/watchdogs-icon-100.png"
 for n in wdg-demo wdg-game; do
     echo "  sudo install -m 0644 $ROOT/dev/$n.desktop /usr/share/APPLaunch/applications/$n.desktop"
 done
 echo "Remove them later with:"
 echo "  sudo rm /usr/share/APPLaunch/applications/wdg-demo.desktop /usr/share/APPLaunch/applications/wdg-game.desktop"
+echo "  sudo rm /usr/share/APPLaunch/share/images/watchdogs-icon-100.png"
