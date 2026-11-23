@@ -1,8 +1,9 @@
 # UI adaptation: 640×360 → 320×170
 
-**Status: proposal.** Based on the upstream screenshots
-(`/home/tesso/dev/WatchDogsGo/docs/screenshots/`, 1280×720 = the 640×360
-canvas at 2×) and a read of `watchdogs/app.py`. Nothing is implemented.
+**Status: proposal.** Based on the upstream screenshots (1280×720 = the
+640×360 canvas at 2×) and a read of `watchdogs/app.py`. Nothing is
+implemented here yet — see `ROADMAP.md` for what's since landed in
+`czplatform/ui320.py` and `docs/screenshots/` for the result.
 
 **Goal (owner):** stay as faithful to the original as possible; change only
 what the smaller screen forces. The rule of thumb: **keep the look, re-budget

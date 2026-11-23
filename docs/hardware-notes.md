@@ -1,9 +1,9 @@
 # Hardware reference notes
 
-Research dump backing `CLAUDE.md`'s hardware section. Gathered 2026-11-18 via
-web search (the device shipped ~May 2026, after this assistant's knowledge
-cutoff, so none of this was prior knowledge — it's all sourced below).
-Treat anything not confirmed against the physical hardware as provisional.
+Research dump backing this port's internal hardware notes. Gathered
+2026-11-18 via web search (the device shipped ~May 2026, so none of this was
+assumed — it's all sourced below). Treat anything not confirmed against the
+physical hardware as provisional.
 
 ## CardputerZero — full EXT 2.54-14P pinout
 

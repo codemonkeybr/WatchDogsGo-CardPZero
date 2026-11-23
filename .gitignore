@@ -13,3 +13,9 @@ dev/
 loot/
 maps/
 probe*.txt
+
+# --dry-run output, not source
+czplatform-dryrun*.png
+
+# Claude Code's own project-instructions file: local-only, not published
+CLAUDE.md
