@@ -20,9 +20,22 @@ rewrite the UI — their own Python example renders the same way we do.
 - It scans `/usr/share/APPLaunch/applications/*.desktop` and rescans about
   every **3 s**, so a new, edited or deleted entry shows up in the carousel
   without a restart (`systemctl --user restart APPLaunch.service` forces it).
-- `.desktop` keys it reads: `Name` (required), `Exec` (required), `Icon`
-  (relative to `/usr/share/APPLaunch/` or absolute), `Terminal`, `Sysplause`,
-  `Type` (must be `Application` if present), `Hidden` / `NoDisplay`.
+- `.desktop` keys it reads: `Name` (required), `Exec` (required), `Icon`,
+  `Terminal`, `Sysplause`, `Type` (must be `Application` if present),
+  `Hidden` / `NoDisplay`.
+- **`Icon` must be `share/images/<name>.png`, resolved relative to
+  `/usr/share/APPLaunch/` — not an absolute path.** `launcher_platform::path()`
+  (`include/launcher_platform.hpp`) just forwards the string to an opaque IPC
+  call ("Path"), so an absolute path *looked* supported from reading the
+  source alone — it wasn't, live (2026-11-20): the carousel entry still
+  appeared but with every first-party app's **fallback icon** instead (an
+  embedded M5Stack logo baked into the launcher binary,
+  `ui/home_icon_fallback.c`) and no visible error (the fallback also covers a
+  PNG the LVGL decoder can't read, so a decode failure and a path that didn't
+  resolve look identical from the outside). Copying the icon into
+  `/usr/share/APPLaunch/share/images/` and referencing it the same way every
+  working app does fixed it immediately. `tools/make-dev-entry.sh` follows
+  this now.
 - **`Exec` is validated:** shell metacharacters are rejected; a path containing
   `/` must be an executable file; a bare command is only accepted from a small
   built-in whitelist (`bash`, `sh`, `python3`, `vim`, `vi`, `nano`…). So `Exec`
@@ -124,8 +137,9 @@ From the launcher's own developer notes (`projects/APPLaunch/AGENTS.md`,
   relying on `pip` at install time.
 - The AppBuilder `postinst` hard-codes the user `pi`; ours must handle the real
   login user (here the user is already in `video` and `input`).
-- Icon size/style for the carousel (existing icons are named like
-  `cli_100.png`, i.e. probably 100×100) — check one on the device.
+- ~~Icon size/style for the carousel~~ confirmed: 100×100 PNG, 8-bit RGBA,
+  color type 6, non-interlaced (`watchdogs-icon-100.png`, rendered from the
+  vendored `assets/watchdogs-icon.svg` with `cairosvg`).
 - Whether `Exec=/usr/bin/sudo -n -- <wrapper>` passes the launcher's check (the
   first-party Cap apps use it, so very likely) — only needed if we end up
   needing root.

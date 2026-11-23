@@ -97,5 +97,61 @@ class CapRailTest(unittest.TestCase):
         rail.restore()                                  # no-op
 
 
+class RedirectUserStateTest(unittest.TestCase):
+    """A `.deb` install's /usr/share/APPLaunch/apps/<pkg>/ is read-only, so
+    secrets.conf/plugin state must not depend on being writable there."""
+
+    def setUp(self):
+        self.state_dir = Path(tempfile.mkdtemp()) / "dotwatchdogs"
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.state_dir.parent, ignore_errors=True)
+
+    def test_creates_the_state_dir_and_seeds_from_the_example(self):
+        host.redirect_user_state(self.state_dir)
+        secrets_path = self.state_dir / "secrets.conf"
+        self.assertTrue(secrets_path.is_file())
+        example = Path(__file__).resolve().parent.parent / "secrets.conf.example"
+        self.assertEqual(secrets_path.read_text(), example.read_text())
+
+    def test_stadia_key_is_read_from_the_redirected_path(self):
+        self.state_dir.mkdir(parents=True)
+        (self.state_dir / "secrets.conf").write_text("STADIA_API_KEY=abc123\n")
+        host.redirect_user_state(self.state_dir)
+        from watchdogs import tile_manager
+        self.assertEqual(tile_manager._load_stadia_key(), "abc123")
+
+    def test_wardrive_state_and_secret_writes_land_in_the_state_dir(self):
+        self.state_dir.mkdir(parents=True)
+        (self.state_dir / "secrets.conf").write_text("")  # skip the example seed
+        host.redirect_user_state(self.state_dir)
+        from plugins import wardrive_upload
+
+        class _Fake(wardrive_upload.WardriveUpload):
+            def __init__(self):
+                pass
+
+        plugin = _Fake()
+        self.assertEqual(plugin._state_file(), self.state_dir / "wardrive_state.json")
+
+        plugin._save_secret("WARDRIVE_API_KEY", "deadbeef")
+        content = (self.state_dir / "secrets.conf").read_text()
+        self.assertIn("WARDRIVE_API_KEY=deadbeef", content)
+
+        # a second save of the same key replaces the line, it doesn't duplicate it
+        plugin._save_secret("WARDRIVE_API_KEY", "cafef00d")
+        content = (self.state_dir / "secrets.conf").read_text()
+        self.assertEqual(content.count("WARDRIVE_API_KEY="), 1)
+        self.assertIn("WARDRIVE_API_KEY=cafef00d", content)
+
+    def test_config_module_constants_reread_from_the_redirected_path(self):
+        self.state_dir.mkdir(parents=True)
+        (self.state_dir / "secrets.conf").write_text("WDG_WPASEC_KEY=sekret\n")
+        host.redirect_user_state(self.state_dir)
+        from watchdogs import config
+        self.assertEqual(config.WPASEC_KEY, "sekret")
+
+
 if __name__ == "__main__":
     unittest.main()

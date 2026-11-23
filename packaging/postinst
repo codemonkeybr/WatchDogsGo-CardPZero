@@ -1,0 +1,24 @@
+#!/bin/sh
+# Add every real human login user (not system accounts) to the groups the
+# game's device nodes need — /dev/fb0 (video), /dev/input/event3 (input),
+# the Cap's SPI/GPIO (spi/gpio), /dev/ttyS0 (dialout), WiFi/BT scanning via
+# NetworkManager/BlueZ D-Bus (netdev). Idempotent (usermod -aG is a no-op if
+# already a member); every first-party M5 app follows the same group-access
+# model instead of running as root (docs/launcher-guidelines.md).
+#
+# Unlike AppBuilder's own example postinst (hard-coded user "pi"), this
+# walks every real account (UID 1000-59999, the Debian "normal user" range)
+# since the CardputerZero's own default login is not "pi" (CLAUDE.md).
+set -e
+
+GROUPS="video input gpio spi i2c dialout netdev"
+
+for user in $(getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 {print $1}'); do
+    for grp in $GROUPS; do
+        if getent group "$grp" >/dev/null 2>&1; then
+            usermod -aG "$grp" "$user" || true
+        fi
+    done
+done
+
+exit 0
