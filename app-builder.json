@@ -1,0 +1,35 @@
+{
+  "package_name": "watchdogsgo-cardputerzero",
+  "version": "0.1.0",
+  "app_name": "WatchDogsGo (beta)",
+  "bin_name": "watchdogsgo-cardputerzero",
+  "description": "WatchDogsGo — WiFi/BLE/LoRa/SDR wardriving RPG, ported to the CardputerZero",
+
+  "store": {
+    "summary": "Watch Dogs-style hacking game with real WiFi/BLE/LoRa/SDR tooling",
+    "description": "An open-world hacking RPG that overlays real WiFi/BLE/LoRa/SDR security tooling on a retro pyxel HUD. Wardrive with the device's own WiFi/BLE radio or an ESP32, track GPS position on a live map, run LoRa/MeshCore mesh networking off a Cap LoRa module, and pick up ADS-B/433 MHz traffic with an RTL-SDR dongle — all wrapped in a Watch Dogs-style world map, XP, and badge progression. Ported from the ClockworkPi uConsole original (github.com/LOCOSP/WatchDogsGo) to run as an installed app on the CardputerZero's own launcher. Still in beta: see the project README for current status and known limitations (e.g. ADS-B needs one manual extra step, since Debian doesn't package a working dump1090).",
+    "categories": ["Games", "Radio & Comms"],
+    "screenshots": [
+      "store/screenshots/320x170-main.png",
+      "store/screenshots/320x170-menu-scan.png",
+      "store/screenshots/320x170-menu-system.png",
+      "store/screenshots/320x170-log.png",
+      "store/screenshots/320x170-loot-1.png",
+      "store/screenshots/320x170-loot-2.png"
+    ],
+    "icon": "store/icon.png",
+    "license": "MIT",
+    "source_repo": "https://github.com/codemonkeybr/WatchDogsGo-CardPZero",
+    "author": { "github": "codemonkeybr", "display_name": "Tesso Codemonkey" },
+    "share_code": "WDGC",
+    "permissions": {
+      "camera": false,
+      "microphone": false,
+      "imu": false,
+      "network": true,
+      "additional_hardware": true,
+      "background_service": false,
+      "external_display": false
+    }
+  }
+}
