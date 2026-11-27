@@ -25,11 +25,12 @@ done
 # RTL-SDR dongle plugged in and nothing else to configure — the bundled
 # readsb build (vendor/readsb/README.md) + its shim replace what used to be
 # a manual compile-your-own-readsb step in docs/install.md (ROADMAP.md,
-# "SDR unlock"). Only replaces a symlink we made before, never a real file
-# someone else put there.
+# "SDR unlock"). Replaces nothing, a symlink, or our own old hand-installed
+# copy of the shim (it mentions readsb), but never an unrelated real dump1090.
 DUMP1090_SHIM="/usr/share/APPLaunch/apps/watchdogsgo-cardputerzero/tools/dump1090-readsb-shim.sh"
 if [ -x "$DUMP1090_SHIM" ]; then
-    if [ ! -e /usr/local/bin/dump1090 ] || [ -L /usr/local/bin/dump1090 ]; then
+    if [ ! -e /usr/local/bin/dump1090 ] || [ -L /usr/local/bin/dump1090 ] \
+        || grep -q readsb /usr/local/bin/dump1090 2>/dev/null; then
         ln -sf "$DUMP1090_SHIM" /usr/local/bin/dump1090
     fi
 fi

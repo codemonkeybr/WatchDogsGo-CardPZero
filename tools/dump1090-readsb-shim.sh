@@ -22,6 +22,6 @@
 #
 # Prefer the bundled binary (installed next to this script); fall back to a
 # system readsb for anyone who still has one hand-built per the old recipe.
-READSB_BIN="$(dirname "$0")/readsb"
+READSB_BIN="$(dirname "$(readlink -f "$0")")/readsb"
 [ -x "$READSB_BIN" ] || READSB_BIN="/usr/bin/readsb"
 exec "$READSB_BIN" --device-type rtlsdr --device 0 --net-sbs-port=30003 "$@"
