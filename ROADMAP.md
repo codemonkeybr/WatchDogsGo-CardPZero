@@ -601,7 +601,7 @@ Append newest entries at the top. One line per session/milestone is enough
   peripheral is actually a NooElec NESDR SMART (RTL-SDR). `ROADMAP.md`
   created to track phase-by-phase status.
 
-- **0.1.0-3 (2026-11-27):** fix from a store user's `last_run.log` — a
+- **0.1.1 (2026-11-27, was 0.1.0-3):** fix from a store user's `last_run.log` — a
   `Jetson.GPIO`/`RPi.GPIO` shim in `/usr/local/lib/python3.13/dist-packages`
   shadowed `python3-rpi-lgpio`, so `import LoRaRF` raised a non-`ImportError`
   and crashed the game at boot. `host.ensure_working_rpi_gpio()` now retries
