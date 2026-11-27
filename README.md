@@ -15,19 +15,21 @@ handheld: Raspberry Pi CM0, 320×170 screen, 46-key keyboard).
 
 The game runs end-to-end on real hardware: GPS, LoRa/MeshCore (on a Cap with
 an SX1262 module), WiFi/BLE wardriving from the device's own radio, and the
-WDGWars community portal all confirmed live on the device. It installs and
-launches as **"WatchDogsGo (beta)"** from the CardputerZero's own app
-carousel via a `.deb` package.
+WDGWars community portal, and ADS-B/433 MHz with an RTL-SDR dongle all
+confirmed live on the device. It launches as **"WatchDogsGo (beta)"** from the
+CardputerZero's own app carousel.
 
-This is a **beta** being shared for community feedback before any
-AppStore listing — see [`ROADMAP.md`](ROADMAP.md) for the full phase-by-phase
-status, what's verified vs. still open, and known limitations (e.g. ADS-B
-needs one manual extra step — not packageable from Debian alone).
+It is listed in the **CardputerZero AppStore** (package
+`watchdogsgo-cardputerzero`, share code `WDGC`), currently a **beta** — see
+[`ROADMAP.md`](ROADMAP.md) for the full phase-by-phase status and what's
+verified vs. still open.
 
 ## Installing
 
-See [`docs/install.md`](docs/install.md) for the sideload steps (`scp` the
-`.deb`, `dpkg -i`, done) and what works out of the box.
+Install it from the AppStore on the device, or sideload the `.deb` — see
+[`docs/install.md`](docs/install.md) for the sideload steps (`scp` the
+`.deb`, `dpkg -i`, done) and what works out of the box. ADS-B needs no extra
+setup: a RTL-SDR-enabled `readsb` is bundled in the package.
 
 ## How it's built
 
