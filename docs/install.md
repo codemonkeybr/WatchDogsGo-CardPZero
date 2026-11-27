@@ -35,39 +35,20 @@ all plain Debian packages:
   bundled in the package since it isn't in Debian; see `docs/hardware-notes.md`).
 - WiFi/BLE wardriving from the device's own radio (no monitor mode — see
   `docs/wifi-monitor-mode.md` — but SSID/BLE scanning works unprivileged).
-- 433 MHz scanning (`rtl_433`) with a NooElec NESDR SMART or similar RTL-SDR
-  dongle plugged in (`rtl-sdr`/`rtl-433` are `Recommends:`, not `Depends:`,
-  since the dongle is optional hardware).
+- 433 MHz scanning (`rtl_433`) and ADS-B (`readsb`, bundled with RTL-SDR
+  support — see §3) with a NooElec NESDR SMART or similar RTL-SDR dongle
+  plugged in (`rtl-sdr`/`rtl-433` are `Recommends:`, not `Depends:`, since
+  the dongle is optional hardware).
 - WDGWars portal sync/pairing (see `docs/portal-rules.md`).
 
-## 3. ADS-B (dump1090) — manual step, not in the package
+## 3. ADS-B (dump1090)
 
-The ADS-B Radar needs `dump1090`, and Debian 13 (trixie) doesn't package
-`dump1090` at all. Debian does package `readsb` (the maintained successor),
-but **its Debian build ships without RTL-SDR support** (`RTLSDR` is off by
-default upstream), so a stock `apt install readsb` can't open the dongle.
-
-There's no way to fix this from the `.deb` alone — it needs compiling
-`readsb` locally with RTL-SDR support turned on. If you want ADS-B:
-
-```bash
-sudo apt install -y --no-install-recommends \
-    devscripts dpkg-dev debhelper \
-    libusb-1.0-0-dev libncurses-dev zlib1g-dev zlib1g pkg-config \
-    libzstd-dev libzstd1 librtlsdr0 librtlsdr-dev rtl-sdr rtl-433
-sudo systemctl disable --now readsb   # its own daemon would hold the dongle
-sudo systemctl mask readsb
-mkdir -p /tmp/readsb-build && cd /tmp/readsb-build
-dget -u https://deb.debian.org/debian/pool/main/r/readsb/readsb_3.14.1630+git20240609.adc080d-1.dsc
-cd readsb-3.14.1630+git20240609.adc080d
-DEB_BUILD_OPTIONS=noddebs dpkg-buildpackage -b -Prtlsdr -ui -uc -us
-cd .. && sudo dpkg -i readsb_3.14.1630+git20240609.adc080d-1_arm64.deb
-sudo install -m 755 /usr/share/APPLaunch/apps/watchdogsgo-cardputerzero/tools/dump1090-readsb-shim.sh /usr/local/bin/dump1090
-```
-
-Without this step: 433 MHz scanning still works; ADS-B Radar will report
-"dump1090 not installed" and stay off. This is a known, documented
-limitation — see `ROADMAP.md`, "SDR unlock" — not a bug in the package.
+Works out of the box — no manual step. Debian's own `readsb` package ships
+without RTL-SDR support, so the package bundles its own build of `readsb`
+(compiled with RTL-SDR enabled, `vendor/readsb/README.md`) and wires it onto
+`PATH` as `dump1090` automatically (`packaging/postinst`), which is what
+`watchdogs/sdr_manager.py` looks for. Plug in an RTL-SDR dongle (a NooElec
+NESDR SMART or similar) and the ADS-B Radar screen just works.
 
 ## 4. If something looks wrong
 

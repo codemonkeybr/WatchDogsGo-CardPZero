@@ -1,9 +1,11 @@
 #!/bin/sh
 # A `dump1090` on PATH, for watchdogs/sdr_manager.py (vendored, unmodified) to
 # find. Debian (trixie) has no `dump1090` package; it ships `readsb`, the
-# maintained successor to dump1090-fa, built here from Debian's own source with
-# its `-Prtlsdr` profile (see ROADMAP.md, "SDR unlock") so RTL-SDR support is
-# actually compiled in.
+# maintained successor to dump1090-fa, but without RTL-SDR support compiled
+# in (`-Prtlsdr` is off by default upstream) — so we bundle our own build of
+# it instead (`vendor/readsb/README.md` has the recipe + provenance) and
+# install this shim onto PATH automatically from `packaging/postinst`. No
+# manual step needed any more (ROADMAP.md, "SDR unlock").
 #
 # This readsb build differs from legacy dump1090 in two ways sdr_manager.py's
 # hard-coded `["dump1090", "--net", "--quiet"]` doesn't account for (can't
@@ -18,19 +20,8 @@
 # dump1090 is already running (two-dongle setups); with one dongle (the usual
 # case here), always use index 0 and never run ADS-B and 433 MHz at once.
 #
-# Install (needs sudo once):
-#   sudo apt install -y --no-install-recommends \
-#       devscripts dpkg-dev debhelper \
-#       libusb-1.0-0-dev libncurses-dev zlib1g-dev zlib1g pkg-config \
-#       libzstd-dev libzstd1 librtlsdr0 librtlsdr-dev rtl-sdr rtl-433
-#   sudo systemctl disable --now readsb   # its own daemon would hold the dongle
-#   sudo systemctl mask readsb
-#   mkdir -p /tmp/readsb-build && cd /tmp/readsb-build
-#   dget -u https://deb.debian.org/debian/pool/main/r/readsb/readsb_3.14.1630+git20240609.adc080d-1.dsc
-#   cd readsb-3.14.1630+git20240609.adc080d
-#   DEB_BUILD_OPTIONS=noddebs dpkg-buildpackage -b -Prtlsdr -ui -uc -us
-#   cd .. && sudo dpkg -i readsb_3.14.1630+git20240609.adc080d-1_arm64.deb
-#   sudo install -m 755 tools/dump1090-readsb-shim.sh /usr/local/bin/dump1090
-#
-# See docs/hardware-notes.md and ROADMAP.md (SDR unlock) for the full story.
-exec /usr/bin/readsb --device-type rtlsdr --device 0 --net-sbs-port=30003 "$@"
+# Prefer the bundled binary (installed next to this script); fall back to a
+# system readsb for anyone who still has one hand-built per the old recipe.
+READSB_BIN="$(dirname "$0")/readsb"
+[ -x "$READSB_BIN" ] || READSB_BIN="/usr/bin/readsb"
+exec "$READSB_BIN" --device-type rtlsdr --device 0 --net-sbs-port=30003 "$@"

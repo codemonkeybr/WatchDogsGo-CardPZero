@@ -341,6 +341,60 @@ def preload_lgpio():
         log.debug("lgpio preload failed (no LoRa hardware expected?)", exc_info=True)
 
 
+_SYSTEM_DIST = "/usr/lib/python3/dist-packages"
+
+
+def ensure_working_rpi_gpio():
+    """Make ``import RPi.GPIO`` either work or fail with a plain ImportError.
+
+    LoRaRF (bundled) does ``import RPi.GPIO``. On Debian that should be
+    ``python3-rpi-lgpio`` (lgpio-backed, in ``/usr/lib/python3/dist-packages``),
+    but ``/usr/local/lib/python3.13/dist-packages`` precedes it on ``sys.path``,
+    so a user's earlier ``pip install`` of the real ``RPi.GPIO`` or
+    ``Jetson.GPIO`` (whose ``RPi`` shim raises ``Exception('Could not determine
+    Jetson model')``) shadows the working one. Reported from a store install.
+
+    The game only catches ``ImportError`` around ``import LoRaRF``, so any other
+    exception crashed the whole app at boot. Here: try the import; if it blows
+    up, drop the broken modules, retry with the system dist-packages first, and
+    if that fails too, block ``RPi`` so LoRaRF raises a clean ImportError (the
+    game then shows "LoRaRF — not found" and runs without LoRa).
+    """
+    import sys
+
+    def _purge():
+        for name in [m for m in sys.modules if m.split(".")[0] in ("RPi", "Jetson")]:
+            del sys.modules[name]
+
+    try:
+        import RPi.GPIO  # noqa: F401
+        return True
+    except Exception as exc:
+        log.warning("RPi.GPIO from %s is unusable (%s); trying the system one",
+                    getattr(sys.modules.get("RPi"), "__file__", "?"), exc)
+    _purge()
+    if os.path.isdir(os.path.join(_SYSTEM_DIST, "RPi")):
+        sys.path.insert(0, _SYSTEM_DIST)
+        try:
+            import RPi.GPIO  # noqa: F401
+            log.info("using system RPi.GPIO (python3-rpi-lgpio)")
+            return True
+        except Exception:
+            log.warning("system RPi.GPIO failed too", exc_info=True)
+            _purge()
+        finally:
+            try:
+                sys.path.remove(_SYSTEM_DIST)
+            except ValueError:
+                pass
+    # Fail closed: a clean ImportError for LoRaRF instead of a crash.
+    sys.modules["RPi"] = None
+    sys.modules["RPi.GPIO"] = None
+    log.warning("LoRa disabled: no working RPi.GPIO "
+                "(pip uninstall Jetson.GPIO RPi.GPIO; apt install python3-rpi-lgpio)")
+    return False
+
+
 def adapt_game():
     """Apply every runtime adaptation. Call after importing, before constructing."""
     make_aio_inert()
@@ -351,6 +405,7 @@ def adapt_game():
     auto_start_lora_like_aio_left_on()
     redirect_user_state()
     preload_lgpio()
+    ensure_working_rpi_gpio()
 
 
 class CapRail:

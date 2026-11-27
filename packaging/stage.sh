@@ -18,11 +18,14 @@ done
 # dev-only cruft that may have been left behind under assets/ or elsewhere
 find "$DEST" -name "__pycache__" -type d -prune -exec rm -rf {} +
 
-# dump1090-readsb-shim.sh isn't runnable as shipped (Debian's readsb lacks
-# RTL-SDR support, so it needs a hand-built readsb first — docs/install.md),
-# but ship it anyway so the manual ADS-B step has something to install.
+# Bundled readsb (built with -Prtlsdr, Debian's own doesn't have RTL-SDR
+# support — vendor/readsb/README.md) + the shim that makes it look like
+# `dump1090` to watchdogs/sdr_manager.py (vendored, unmodified). postinst
+# symlinks the shim onto PATH, so ADS-B works with no manual step.
 mkdir -p "$DEST/tools"
 cp -a "$REPO_ROOT/tools/dump1090-readsb-shim.sh" "$DEST/tools/"
+cp -a "$REPO_ROOT/vendor/readsb/readsb-arm64" "$DEST/tools/readsb"
+chmod 0755 "$DEST/tools/readsb"
 
 echo "-- vendoring pyxel + LoRaRF (not packaged for Debian)"
 VENDOR_DIR="$DEST/vendor"

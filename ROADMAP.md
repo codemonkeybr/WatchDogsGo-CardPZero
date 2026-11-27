@@ -143,6 +143,21 @@ feedback has been collected and triaged.
 Append newest entries at the top. One line per session/milestone is enough
 — the task tables above carry the detail.
 
+- **2026-11-27 (SDR unlock, zero manual steps)** — The ADS-B fix from
+  2026-11-19 needed a hand-built `readsb` + a manual `install` onto
+  `/usr/local/bin/dump1090` after every sideload (`docs/install.md` §3).
+  Since the package install itself already needs root (`dpkg -i`/the store's
+  own installer), moved that work into the package: built `readsb` once with
+  `-Prtlsdr` and vendored the resulting arm64 binary
+  (`vendor/readsb/readsb-arm64`, provenance in `vendor/readsb/README.md`);
+  `packaging/stage.sh` now ships it under the app's own `tools/`, and
+  `packaging/postinst` symlinks `tools/dump1090-readsb-shim.sh` onto
+  `/usr/local/bin/dump1090` automatically. `docs/install.md` §3 rewritten —
+  ADS-B now just needs an RTL-SDR dongle plugged in, no sideload-time step at
+  all. Bumped `packaging/meta.env` to `0.1.0-2` (packaging-only change, same
+  app version) and added the bundled binary's runtime libs
+  (`librtlsdr0`/`libncurses6`/`libzstd1`) to `Recommends:`.
+
 - **2026-11-20 (carousel icon: found the vendored one, and a wrong assumption in `docs/launcher-guidelines.md` about absolute `Icon=` paths)** —
   Owner noticed the carousel entry showed a generic M5Stack placeholder
   instead of a real icon. Upstream already ships `assets/watchdogs-icon.svg`
@@ -585,3 +600,9 @@ Append newest entries at the top. One line per session/milestone is enough
   risk list). Corrected an early misread: the "ADB Scan (Radar)" USB
   peripheral is actually a NooElec NESDR SMART (RTL-SDR). `ROADMAP.md`
   created to track phase-by-phase status.
+
+- **0.1.0-3 (2026-11-27):** fix from a store user's `last_run.log` — a
+  `Jetson.GPIO`/`RPi.GPIO` shim in `/usr/local/lib/python3.13/dist-packages`
+  shadowed `python3-rpi-lgpio`, so `import LoRaRF` raised a non-`ImportError`
+  and crashed the game at boot. `host.ensure_working_rpi_gpio()` now retries
+  with the system dist-packages first and otherwise disables LoRa cleanly.

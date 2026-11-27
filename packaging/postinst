@@ -21,4 +21,17 @@ for user in $(getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 {print $1}'); do
     done
 done
 
+# Put a `dump1090` on PATH so ADS-B (the Radar screen) works with an
+# RTL-SDR dongle plugged in and nothing else to configure — the bundled
+# readsb build (vendor/readsb/README.md) + its shim replace what used to be
+# a manual compile-your-own-readsb step in docs/install.md (ROADMAP.md,
+# "SDR unlock"). Only replaces a symlink we made before, never a real file
+# someone else put there.
+DUMP1090_SHIM="/usr/share/APPLaunch/apps/watchdogsgo-cardputerzero/tools/dump1090-readsb-shim.sh"
+if [ -x "$DUMP1090_SHIM" ]; then
+    if [ ! -e /usr/local/bin/dump1090 ] || [ -L /usr/local/bin/dump1090 ]; then
+        ln -sf "$DUMP1090_SHIM" /usr/local/bin/dump1090
+    fi
+fi
+
 exit 0

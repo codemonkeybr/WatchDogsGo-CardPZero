@@ -155,3 +155,30 @@ class RedirectUserStateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnsureWorkingRpiGpioTests(unittest.TestCase):
+    def test_broken_rpi_gpio_becomes_clean_import_error(self):
+        import sys, tempfile, os, importlib
+        from czplatform import host
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "RPi", "GPIO"))
+        open(os.path.join(d, "RPi", "__init__.py"), "w").close()
+        with open(os.path.join(d, "RPi", "GPIO", "__init__.py"), "w") as f:
+            f.write("raise Exception('Could not determine Jetson model')\n")
+        saved = {k: v for k, v in sys.modules.items() if k.split(".")[0] == "RPi"}
+        for k in saved:
+            del sys.modules[k]
+        sys.path.insert(0, d)
+        old_dist = host._SYSTEM_DIST
+        host._SYSTEM_DIST = "/nonexistent"
+        try:
+            self.assertFalse(host.ensure_working_rpi_gpio())
+            with self.assertRaises(ImportError):
+                import RPi.GPIO  # noqa: F401
+        finally:
+            host._SYSTEM_DIST = old_dist
+            sys.path.remove(d)
+            for k in [m for m in sys.modules if m.split(".")[0] == "RPi"]:
+                del sys.modules[k]
+            sys.modules.update(saved)

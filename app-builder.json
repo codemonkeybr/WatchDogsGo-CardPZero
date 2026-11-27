@@ -7,7 +7,7 @@
 
   "store": {
     "summary": "Watch Dogs-style hacking game with real WiFi/BLE/LoRa/SDR tooling",
-    "description": "An open-world hacking RPG that overlays real WiFi/BLE/LoRa/SDR security tooling on a retro pyxel HUD. Wardrive with the device's own WiFi/BLE radio or an ESP32, track GPS position on a live map, run LoRa/MeshCore mesh networking off a Cap LoRa module, and pick up ADS-B/433 MHz traffic with an RTL-SDR dongle — all wrapped in a Watch Dogs-style world map, XP, and badge progression. Ported from the ClockworkPi uConsole original (github.com/LOCOSP/WatchDogsGo) to run as an installed app on the CardputerZero's own launcher. Still in beta: see the project README for current status and known limitations (e.g. ADS-B needs one manual extra step, since Debian doesn't package a working dump1090).",
+    "description": "An open-world hacking RPG that overlays real WiFi/BLE/LoRa/SDR security tooling on a retro pyxel HUD. Wardrive with the device's own WiFi/BLE radio or an ESP32, track GPS position on a live map, run LoRa/MeshCore mesh networking off a Cap LoRa module, and pick up ADS-B/433 MHz traffic with an RTL-SDR dongle — all wrapped in a Watch Dogs-style world map, XP, and badge progression. Ported from the ClockworkPi uConsole original (github.com/LOCOSP/WatchDogsGo) to run as an installed app on the CardputerZero's own launcher. Still in beta: see the project README for current status.",
     "categories": ["Games", "Radio & Comms"],
     "screenshots": [
       "store/screenshots/320x170-main.png",
